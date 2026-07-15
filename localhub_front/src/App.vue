@@ -131,11 +131,6 @@
       </aside>
     </div>
 
-    <div v-if="selectedPlace && !showCommunityPanel" class="detail-panel">
-      <button class="detail-close" @click="closeDetailPanel">✕</button>
-      <h3>{{ selectedPlace.title }}</h3>
-      <p>{{ selectedPlace.description }}</p>
-    </div>
     <div v-if="selectedPlace" class="detail-panel" :style="detailPanelStyle">
       <button class="detail-close" @click="closeDetailPanel">✕</button>
       <div class="detail-content">
@@ -427,16 +422,17 @@ export default {
         this.customOverlay.setMap(null);
       }
       this.customOverlay = null;
-      this.selectedPlace = { title, description };
-      if (title === '서울') {
-        this.showCommunityPanel = true;
-      } else {
-        this.showCommunityPanel = false;
-      }
+      this.selectedPlace = { title, description, address, image };
+      this.showCommunityPanel = title === '서울';
+
+      this.$nextTick(() => {
+        this.positionDetailPanel(position || marker?.getPosition?.());
+      });
     },
     closeDetailPanel() {
       this.selectedPlace = null;
       this.showCommunityPanel = false;
+      this.detailPanelStyle = { left: '16px', top: '16px' };
     },
     toggleCommunityPanel() {
       this.showCommunityPanel = !this.showCommunityPanel;
