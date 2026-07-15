@@ -19,6 +19,9 @@
         <p class="toolbar-title">카카오맵이 먼저 보이고, 기능은 그 다음에 표시됩니다.</p>
         <div class="toolbar-meta">
           <span class="count-pill">선택된 카테고리 수: {{ activeCategories.length }}</span>
+          <button class="community-toggle-btn" @click="toggleCommunityPanel">
+            {{ showCommunityPanel ? '커뮤니티 닫기' : '커뮤니티 열기' }}
+          </button>
         </div>
         <div class="category-list">
           <button
@@ -35,10 +38,98 @@
       </div>
     </div>
 
-    <div id="map" class="map-area"></div>
+    <div class="content-area">
+      <div id="map" class="map-area"></div>
 
-    <div v-if="selectedPlace" class="detail-panel">
-      <button class="detail-close" @click="selectedPlace = null">✕</button>
+      <aside v-if="showCommunityPanel" class="community-panel">
+        <div class="community-header">
+          <div>
+            <p class="community-title">{{ selectedPlace?.title || '서울 커뮤니티' }}</p>
+            <p class="community-subtitle">서울 권역의 익명 커뮤니티입니다. 제목·내용·비밀번호로 게시글을 저장하고 관리할 수 있습니다.</p>
+          </div>
+          <button class="community-close" @click="closeCommunityPanel">✕</button>
+        </div>
+
+        <div class="community-summary">
+          <span>표시 중 {{ visibleCommunityPosts.length }}개</span>
+          <span>비밀번호로만 수정/삭제</span>
+        </div>
+
+        <div class="community-filter-list">
+          <button class="filter-chip" :class="{ active: communityCategoryFilter === '전체' }" @click="setCommunityCategory('전체')">전체</button>
+          <button
+            v-for="category in categories"
+            :key="category"
+            class="filter-chip"
+            :class="{ active: communityCategoryFilter === category }"
+            @click="setCommunityCategory(category)"
+          >
+            {{ category }}
+          </button>
+        </div>
+
+        <div class="community-post-list">
+          <div v-if="!visibleCommunityPosts.length" class="community-empty">
+            아직 작성된 게시글이 없습니다. 첫 게시글을 남겨보세요.
+          </div>
+
+          <article
+            v-for="post in visibleCommunityPosts"
+            :key="post.id"
+            class="community-post-card"
+            @click="selectCommunityPost(post)"
+          >
+            <div class="post-meta">
+              <span class="post-author">{{ post.author }}</span>
+              <span class="post-badge">{{ post.location }}</span>
+            </div>
+            <h4>{{ post.title }}</h4>
+            <p>{{ post.content }}</p>
+            <div class="post-footer">
+              <span>{{ post.createdAt }}</span>
+              <button class="inline-action" type="button" @click.stop="selectCommunityPost(post)">상세</button>
+            </div>
+          </article>
+        </div>
+
+        <div v-if="selectedCommunityPost" class="community-detail">
+          <div class="detail-card">
+            <div class="detail-head">
+              <h4>{{ selectedCommunityPost.title }}</h4>
+              <span class="detail-badge">{{ selectedCommunityPost.author }}</span>
+            </div>
+            <p>{{ selectedCommunityPost.content }}</p>
+            <div class="detail-meta">
+              <span>{{ selectedCommunityPost.createdAt }}</span>
+              <span v-if="selectedCommunityPost.updatedAt">수정 {{ selectedCommunityPost.updatedAt }}</span>
+            </div>
+            <div class="detail-actions">
+              <button type="button" @click="startEditCommunityPost(selectedCommunityPost)">수정</button>
+              <button type="button" class="danger" @click="deleteSelectedPost">삭제</button>
+            </div>
+            <input v-model="communityDeletePassword" type="password" placeholder="삭제 비밀번호" />
+          </div>
+        </div>
+
+        <form class="community-compose" @submit.prevent="submitCommunityPost">
+          <p class="form-title">{{ editingCommunityPostId ? '게시글 수정' : '새 게시글 작성' }}</p>
+          <select v-model="communityForm.category">
+            <option value="전체">전체</option>
+            <option v-for="category in categories" :key="category" :value="category">{{ category }}</option>
+          </select>
+          <input v-model="communityForm.title" type="text" placeholder="게시글 제목" />
+          <textarea v-model="communityForm.content" rows="3" placeholder="서울 여행 경험을 공유해보세요."></textarea>
+          <input v-model="communityForm.password" type="password" placeholder="수정/삭제 비밀번호" />
+          <div class="form-actions">
+            <button type="submit">{{ editingCommunityPostId ? '수정 완료' : '작성 완료' }}</button>
+            <button v-if="editingCommunityPostId" type="button" class="secondary" @click="resetCommunityForm">취소</button>
+          </div>
+        </form>
+      </aside>
+    </div>
+
+    <div v-if="selectedPlace && !showCommunityPanel" class="detail-panel">
+      <button class="detail-close" @click="closeDetailPanel">✕</button>
       <h3>{{ selectedPlace.title }}</h3>
       <p>{{ selectedPlace.description }}</p>
     </div>
@@ -138,8 +229,30 @@ export default {
           role: 'assistant',
           content: '안녕하세요! 서울 지역 정보와 축제·추천 질문을 자연어로 물어보세요. 제가 제공된 데이터 기준으로 답변해 드립니다.'
         }
-      ]
+      ],
+      showCommunityPanel: false,
+      communityCategoryFilter: '전체',
+      communityStorageKey: 'localhub-seoul-community-posts',
+      communityPosts: [],
+      communityForm: {
+        title: '',
+        content: '',
+        password: '',
+        category: '관광지'
+      },
+      editingCommunityPostId: null,
+      selectedCommunityPost: null,
+      communityDeletePassword: ''
     };
+  },
+  computed: {
+    visibleCommunityPosts() {
+      if (this.communityCategoryFilter === '전체') {
+        return this.communityPosts;
+      }
+
+      return this.communityPosts.filter(post => (post.category || '관광지') === this.communityCategoryFilter);
+    }
   },
   watch: {
     activeCategories() {
@@ -150,6 +263,7 @@ export default {
     }
   },
   mounted() {
+    this.loadCommunityPosts();
     this.loadKakaoMap();
   },
   beforeUnmount() {
@@ -202,6 +316,136 @@ export default {
       }
       this.customOverlay = null;
       this.selectedPlace = { title, description };
+      if (title === '서울') {
+        this.showCommunityPanel = true;
+      } else {
+        this.showCommunityPanel = false;
+      }
+    },
+    closeDetailPanel() {
+      this.selectedPlace = null;
+      this.showCommunityPanel = false;
+    },
+    toggleCommunityPanel() {
+      this.showCommunityPanel = !this.showCommunityPanel;
+    },
+    closeCommunityPanel() {
+      this.showCommunityPanel = false;
+    },
+    setCommunityCategory(category) {
+      this.communityCategoryFilter = category;
+      if (category !== '전체' && !this.editingCommunityPostId) {
+        this.communityForm.category = category;
+      }
+    },
+    loadCommunityPosts() {
+      if (typeof window === 'undefined') return;
+      try {
+        const saved = window.localStorage.getItem(this.communityStorageKey);
+        if (!saved) {
+          this.communityPosts = [];
+          return;
+        }
+        const parsed = JSON.parse(saved);
+        this.communityPosts = Array.isArray(parsed) ? parsed : [];
+      } catch (error) {
+        console.error('커뮤니티 데이터를 불러오지 못했습니다.', error);
+        this.communityPosts = [];
+      }
+    },
+    saveCommunityPosts() {
+      if (typeof window === 'undefined') return;
+      window.localStorage.setItem(this.communityStorageKey, JSON.stringify(this.communityPosts));
+    },
+    resetCommunityForm() {
+      this.communityForm = { title: '', content: '', password: '', category: this.communityCategoryFilter === '전체' ? '관광지' : this.communityCategoryFilter };
+      this.editingCommunityPostId = null;
+    },
+    selectCommunityPost(post) {
+      this.selectedCommunityPost = post;
+      this.communityDeletePassword = '';
+    },
+    startEditCommunityPost(post) {
+      this.selectedCommunityPost = post;
+      this.editingCommunityPostId = post.id;
+      this.communityForm = {
+        title: post.title,
+        content: post.content,
+        password: '',
+        category: post.category || '관광지'
+      };
+    },
+    submitCommunityPost() {
+      const title = this.communityForm.title.trim();
+      const content = this.communityForm.content.trim();
+      const password = this.communityForm.password.trim();
+
+      if (!title || !content || !password) {
+        window.alert('제목, 내용, 비밀번호를 모두 입력해주세요.');
+        return;
+      }
+
+      if (this.editingCommunityPostId) {
+        const target = this.communityPosts.find(post => post.id === this.editingCommunityPostId);
+        if (!target) {
+          this.resetCommunityForm();
+          return;
+        }
+
+        if (target.password !== password) {
+          window.alert('비밀번호가 일치하지 않아 수정할 수 없습니다.');
+          return;
+        }
+
+        target.title = title;
+        target.content = content;
+        target.password = password;
+        target.category = this.communityForm.category || target.category || '관광지';
+        target.updatedAt = '수정됨';
+        this.selectedCommunityPost = { ...target };
+      } else {
+        const createdAt = new Date().toLocaleString('ko-KR', {
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit',
+          hour: '2-digit',
+          minute: '2-digit'
+        });
+
+        this.communityPosts.unshift({
+          id: Date.now(),
+          location: '서울',
+          author: '익명',
+          title,
+          content,
+          password,
+          category: this.communityForm.category || '관광지',
+          createdAt,
+          updatedAt: null
+        });
+        this.selectedCommunityPost = this.communityPosts[0];
+      }
+
+      this.saveCommunityPosts();
+      this.resetCommunityForm();
+    },
+    deleteSelectedPost() {
+      if (!this.selectedCommunityPost) return;
+      const password = this.communityDeletePassword.trim();
+      if (!password) {
+        window.alert('삭제를 위해 비밀번호를 입력해주세요.');
+        return;
+      }
+
+      if (this.selectedCommunityPost.password !== password) {
+        window.alert('비밀번호가 일치하지 않아 삭제할 수 없습니다.');
+        return;
+      }
+
+      this.communityPosts = this.communityPosts.filter(post => post.id !== this.selectedCommunityPost.id);
+      this.saveCommunityPosts();
+      this.selectedCommunityPost = null;
+      this.communityDeletePassword = '';
     },
     loadKakaoMap() {
       if (window.kakao?.maps) {
@@ -505,6 +749,18 @@ export default {
 .toolbar-meta {
   display: flex;
   align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.community-toggle-btn {
+  border: none;
+  border-radius: 999px;
+  padding: 8px 12px;
+  background: linear-gradient(135deg, #ff7aa2, #ff5d8f);
+  color: white;
+  font-weight: 700;
+  cursor: pointer;
 }
 
 .count-pill {
@@ -552,6 +808,271 @@ export default {
 
 .emoji {
   font-size: 0.95rem;
+}
+
+.content-area {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+  position: relative;
+}
+
+.map-area {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+}
+
+.community-panel {
+  width: min(360px, 100%);
+  display: flex;
+  flex-direction: column;
+  background: rgba(255, 255, 255, 0.97);
+  border-left: 1px solid #e5e5e5;
+  box-shadow: -8px 0 24px rgba(0, 0, 0, 0.06);
+  z-index: 20;
+}
+
+.community-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 16px;
+  border-bottom: 1px solid #f1f1f1;
+}
+
+.community-title {
+  margin: 0 0 6px;
+  font-size: 1rem;
+  font-weight: 800;
+  color: #222;
+}
+
+.community-subtitle {
+  margin: 0;
+  font-size: 0.9rem;
+  color: #6b7280;
+  line-height: 1.5;
+}
+
+.community-close {
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: 1rem;
+  color: #6b7280;
+}
+
+.community-summary {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0 16px 12px;
+  font-size: 0.8rem;
+  color: #6b7280;
+}
+
+.community-filter-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 0 16px 12px;
+}
+
+.filter-chip {
+  border: 1px solid #f2c7d4;
+  border-radius: 999px;
+  padding: 6px 10px;
+  background: #fff;
+  color: #6b7280;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.filter-chip.active {
+  background: linear-gradient(135deg, #ff7aa2, #ff5d8f);
+  color: white;
+  border-color: #ff7aa2;
+}
+
+.community-post-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0 16px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.community-empty {
+  border: 1px dashed #f0c7d6;
+  border-radius: 12px;
+  padding: 16px;
+  text-align: center;
+  color: #8b5e72;
+  background: #fff7fa;
+}
+
+.community-post-card {
+  border: 1px solid #f0dbe4;
+  border-radius: 14px;
+  padding: 12px;
+  background: #fff;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.04);
+  cursor: pointer;
+}
+
+.post-meta,
+.post-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.8rem;
+  color: #6b7280;
+}
+
+.post-author {
+  font-weight: 700;
+  color: #be185d;
+}
+
+.post-badge {
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: #fdf2f8;
+  color: #be185d;
+  font-size: 0.75rem;
+}
+
+.community-post-card h4 {
+  margin: 8px 0 6px;
+  font-size: 0.95rem;
+  color: #111827;
+}
+
+.community-post-card p {
+  margin: 0 0 8px;
+  font-size: 0.88rem;
+  color: #4b5563;
+  line-height: 1.5;
+}
+
+.inline-action {
+  border: none;
+  background: transparent;
+  color: #be185d;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.community-detail {
+  padding: 0 16px 12px;
+}
+
+.detail-card {
+  border: 1px solid #f3d8e2;
+  border-radius: 14px;
+  padding: 12px;
+  background: linear-gradient(135deg, #fff8fb, #ffffff);
+}
+
+.detail-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.detail-card h4 {
+  margin: 0;
+  font-size: 0.95rem;
+  color: #111827;
+}
+
+.detail-badge {
+  font-size: 0.75rem;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: #fdf2f8;
+  color: #be185d;
+}
+
+.detail-card p {
+  margin: 8px 0;
+  font-size: 0.88rem;
+  color: #4b5563;
+  line-height: 1.5;
+}
+
+.detail-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 0.75rem;
+  color: #6b7280;
+  margin-bottom: 8px;
+}
+
+.detail-actions {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.detail-actions button,
+.form-actions button {
+  border: none;
+  border-radius: 10px;
+  padding: 8px 10px;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.detail-actions button {
+  background: #fdf2f8;
+  color: #be185d;
+}
+
+.detail-actions .danger,
+.form-actions .secondary {
+  background: #fef2f2;
+  color: #b91c1c;
+}
+
+.community-compose {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 16px 16px;
+  border-top: 1px solid #f1f1f1;
+}
+
+.form-title {
+  margin: 0;
+  font-weight: 700;
+  color: #111827;
+}
+
+.community-compose select,
+.community-compose input,
+.community-compose textarea {
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  padding: 10px 12px;
+  font: inherit;
+  resize: vertical;
+}
+
+.form-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.form-actions button[type='submit'] {
+  background: linear-gradient(135deg, #ff7aa2, #ff5d8f);
+  color: white;
 }
 
 .detail-panel {
