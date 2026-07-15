@@ -1,5 +1,5 @@
 <template>
-  <div class="page-shell">
+  <div class="page-shell" :class="isDarkMode ? 'theme-dark' : 'theme-light'">
     <div v-if="!mapReady && !mapError" class="loading-overlay">
       <div class="loading-card">
         <p class="loading-title">카카오맵을 먼저 불러오는 중입니다.</p>
@@ -16,7 +16,10 @@
 
     <div v-if="mapReady" class="toolbar">
       <div class="toolbar-inner">
-        <p class="toolbar-title">카카오맵이 먼저 보이고, 기능은 그 다음에 표시됩니다.</p>
+        <div class="toolbar-top">
+          <p class="toolbar-title">카카오맵이 먼저 보이고, 기능은 그 다음에 표시됩니다.</p>
+          <button class="theme-toggle" @click="toggleTheme">{{ isDarkMode ? '☀️ 라이트' : '🌙 다크' }}</button>
+        </div>
         <div class="toolbar-meta">
           <span class="count-pill">선택된 카테고리 수: {{ activeCategories.length }}</span>
           <button class="community-toggle-btn" @click="toggleCommunityPanel">
@@ -133,6 +136,25 @@
       <h3>{{ selectedPlace.title }}</h3>
       <p>{{ selectedPlace.description }}</p>
     </div>
+    <div v-if="selectedPlace" class="detail-panel" :style="detailPanelStyle">
+      <button class="detail-close" @click="closeDetailPanel">✕</button>
+      <div class="detail-content">
+        <div class="detail-header">
+          <span class="detail-badge">📍 상세 정보</span>
+          <h3>{{ selectedPlace.title }}</h3>
+        </div>
+        <p v-if="selectedPlace.description" class="detail-description">{{ selectedPlace.description }}</p>
+        <p v-if="selectedPlace.address" class="detail-address">📌 {{ selectedPlace.address }}</p>
+        <img
+          v-if="selectedPlace.image"
+          :src="selectedPlace.image"
+          :alt="selectedPlace.title"
+          class="detail-image"
+          @error="handleImageError"
+        />
+        <div v-else class="detail-placeholder">📷 이미지가 없어요</div>
+      </div>
+    </div>
 
     <button class="chat-float-button" @click="toggleChatbot" :class="{ open: chatOpen }">
       <span v-if="!chatOpen">💬</span>
@@ -197,6 +219,11 @@ export default {
       poiMarkersByCategory: {},
       customOverlay: null,
       selectedPlace: null,
+      detailPanelStyle: {
+        left: '16px',
+        top: '16px'
+      },
+      isDarkMode: true,
       categories: ['관광지', '레포츠', '문화시설', '쇼핑', '숙박', '여행코스', '축제공연행사'],
       activeCategories: [],
       categoryColors: {
@@ -264,6 +291,7 @@ export default {
   },
   mounted() {
     this.loadCommunityPosts();
+    this.initTheme();
     this.loadKakaoMap();
   },
   beforeUnmount() {
@@ -303,6 +331,26 @@ export default {
         </div>
       `;
     },
+    initTheme() {
+      try {
+        const saved = localStorage.getItem('localhub-theme');
+        if (saved === 'dark' || saved === 'light') {
+          this.isDarkMode = saved === 'dark';
+          return;
+        }
+      } catch (error) {
+        console.warn('theme storage error', error);
+      }
+      this.isDarkMode = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+    },
+    toggleTheme() {
+      this.isDarkMode = !this.isDarkMode;
+      try {
+        localStorage.setItem('localhub-theme', this.isDarkMode ? 'dark' : 'light');
+      } catch (error) {
+        console.warn('theme storage write error', error);
+      }
+    },
     toggleCategory(category) {
       if (this.activeCategories.includes(category)) {
         this.activeCategories = this.activeCategories.filter(item => item !== category);
@@ -310,7 +358,71 @@ export default {
         this.activeCategories = [...this.activeCategories, category];
       }
     },
-    showBubble(marker, title, description) {
+    closeDetailPanel() {
+      this.selectedPlace = null;
+      this.detailPanelStyle = { left: '16px', top: '16px' };
+    },
+    positionDetailPanel(position) {
+      if (!position || !this.map) {
+        this.detailPanelStyle = { left: '16px', top: '16px' };
+        return;
+      }
+
+      const mapContainer = document.getElementById('map');
+      const panel = this.$el?.querySelector('.detail-panel');
+      if (!mapContainer || !panel) {
+        return;
+      }
+
+      const projection = this.map.getProjection();
+      if (!projection) {
+        return;
+      }
+
+      const point = projection.pointFromCoords(position);
+      const pageRect = this.$el.getBoundingClientRect();
+      const mapRect = mapContainer.getBoundingClientRect();
+      const panelWidth = panel.offsetWidth || 260;
+      const panelHeight = panel.offsetHeight || 220;
+
+      let left = point.x + mapRect.left - pageRect.left + 16;
+      let top = point.y + mapRect.top - pageRect.top + 16;
+
+      const maxLeft = Math.max(16, mapRect.width - panelWidth - 16);
+      const maxTop = Math.max(16, mapRect.height - panelHeight - 16);
+
+      left = Math.min(Math.max(left, 16), maxLeft);
+      top = Math.min(Math.max(top, 16), maxTop);
+
+      this.detailPanelStyle = { left: `${left}px`, top: `${top}px` };
+    },
+    createFallbackImage(label) {
+      const safeLabel = String(label || '장소').replace(/&/g, '&amp;');
+      const svg = `
+        <svg xmlns="http://www.w3.org/2000/svg" width="400" height="240" viewBox="0 0 400 240">
+          <rect width="400" height="240" rx="24" fill="#fff3f7" />
+          <circle cx="200" cy="100" r="56" fill="#ffd6e4" />
+          <path d="M145 185c10-36 45-56 55-56s45 20 55 56" fill="#ff8fab" />
+          <text x="200" y="210" text-anchor="middle" font-size="20" fill="#a24a67" font-family="Arial, sans-serif">${safeLabel}</text>
+        </svg>`;
+      return 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(svg);
+    },
+    handleImageError(event) {
+      if (!this.selectedPlace) return;
+      const fallback = this.createFallbackImage(this.selectedPlace.title || '장소');
+      if (event.target.src !== fallback) {
+        event.target.src = fallback;
+        this.selectedPlace.image = fallback;
+      }
+    },
+    getPlaceAddress(item) {
+      return [item.addr1, item.addr2].filter(Boolean).join(' ');
+    },
+    getPlaceImage(item) {
+      const rawImage = item.firstimage || item.firstimage2 || '';
+      return rawImage && String(rawImage).trim() ? String(rawImage).trim() : this.createFallbackImage(item.title || '장소');
+    },
+    showBubble(marker, title, description, address = '', image = '', position = null) {
       if (this.customOverlay) {
         this.customOverlay.setMap(null);
       }
@@ -446,6 +558,10 @@ export default {
       this.saveCommunityPosts();
       this.selectedCommunityPost = null;
       this.communityDeletePassword = '';
+      this.selectedPlace = { title, description, address, image };
+      this.$nextTick(() => {
+        this.positionDetailPanel(position || marker?.getPosition?.());
+      });
     },
     loadKakaoMap() {
       if (window.kakao?.maps) {
@@ -511,7 +627,14 @@ export default {
           if (r.name === '서울') {
             this.loadSeoulPois();
           }
-          this.showBubble(marker, r.name, r.name === '서울' ? '서울 여행지 데이터를 불러왔어요.' : `${r.name} 지역의 여행 정보를 확인해보세요.`);
+          this.showBubble(
+            marker,
+            r.name,
+            r.name === '서울' ? '서울 여행지 데이터를 불러왔어요.' : `${r.name} 지역의 여행 정보를 확인해보세요.`,
+            '',
+            '',
+            marker.getPosition()
+          );
         });
         this.regionMarkers.push(marker);
       });
@@ -538,7 +661,10 @@ export default {
             yAnchor: 1.25
           });
           window.kakao.maps.event.addListener(marker, 'click', () => {
-            this.showBubble(marker, item.title, item.addr1 || '서울 여행지예요.');
+            const address = this.getPlaceAddress(item);
+            const image = this.getPlaceImage(item);
+            const description = item.overview || (address ? '서울의 추천 여행지예요.' : '서울 여행지예요.');
+            this.showBubble(marker, item.title, description, address, image, marker.getPosition());
           });
           categoryMarkers.push({ marker, overlay });
           marker.setMap(this.activeCategories.includes(category) ? this.map : null);
@@ -695,6 +821,69 @@ export default {
   flex-direction: column;
   position: relative;
   overflow: hidden;
+  background: var(--app-bg);
+  color: var(--text-color);
+  transition: background 0.25s ease, color 0.25s ease;
+}
+
+.page-shell.theme-light {
+  --app-bg: #fffdfd;
+  --text-color: #222;
+  --overlay-bg: rgba(255, 255, 255, 0.9);
+  --card-bg: #ffffff;
+  --card-text: #333;
+  --toolbar-bg: rgba(255, 255, 255, 0.95);
+  --toolbar-border: #e5e5e5;
+  --pill-bg: #fdf2f8;
+  --pill-text: #be185d;
+  --button-bg: linear-gradient(135deg, #fff2f7, #f4f4f4);
+  --button-text: #6b4f5b;
+  --button-border: rgba(0, 0, 0, 0.04);
+  --button-active-bg: linear-gradient(135deg, #ff7aa2, #ff5d8f);
+  --button-active-text: #ffffff;
+  --detail-bg: rgba(255, 255, 255, 0.96);
+  --detail-border: #f2c7d4;
+  --detail-text: #4b4b4b;
+  --detail-badge-bg: #fff0f5;
+  --detail-badge-text: #be185d;
+  --map-bg: #f8f8f8;
+  --bubble-bg: linear-gradient(135deg, #fff8fb, #ffe8f0);
+  --bubble-border: #ff8fab;
+  --bubble-text: #7a3d5b;
+  --bubble-title: #ff5d8f;
+  --bubble-desc: #8a5a6b;
+  --toggle-bg: #ffe4ee;
+  --toggle-text: #ac2f61;
+}
+
+.page-shell.theme-dark {
+  --app-bg: #07111f;
+  --text-color: #f8fafc;
+  --overlay-bg: rgba(7, 17, 31, 0.88);
+  --card-bg: #111c2d;
+  --card-text: #f8fafc;
+  --toolbar-bg: rgba(10, 20, 36, 0.96);
+  --toolbar-border: #283447;
+  --pill-bg: #2b2135;
+  --pill-text: #ffb0cc;
+  --button-bg: linear-gradient(135deg, #26344a, #1d2940);
+  --button-text: #f2dfea;
+  --button-border: rgba(255,255,255,0.06);
+  --button-active-bg: linear-gradient(135deg, #ff7aa2, #ff5d8f);
+  --button-active-text: #ffffff;
+  --detail-bg: rgba(17, 28, 45, 0.96);
+  --detail-border: #4b5a73;
+  --detail-text: #e2e8f0;
+  --detail-badge-bg: #2b2135;
+  --detail-badge-text: #ffb0cc;
+  --map-bg: #09111f;
+  --bubble-bg: linear-gradient(135deg, #23334a, #18253b);
+  --bubble-border: #ff8fab;
+  --bubble-text: #f6dfe7;
+  --bubble-title: #ff9db5;
+  --bubble-desc: #cbd5e1;
+  --toggle-bg: #23364d;
+  --toggle-text: #f8fafc;
 }
 
 .loading-overlay,
@@ -705,11 +894,12 @@ export default {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(255, 255, 255, 0.9);
+  background: var(--overlay-bg);
 }
 
 .loading-card {
-  background: white;
+  background: var(--card-bg);
+  color: var(--card-text);
   border-radius: 16px;
   padding: 24px 32px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
@@ -724,13 +914,14 @@ export default {
 
 .loading-subtitle {
   margin: 0;
-  color: #666;
+  color: var(--card-text);
+  opacity: 0.8;
 }
 
 .toolbar {
   padding: 12px 16px;
-  background: rgba(255, 255, 255, 0.95);
-  border-bottom: 1px solid #e5e5e5;
+  background: var(--toolbar-bg);
+  border-bottom: 1px solid var(--toolbar-border);
   z-index: 10;
 }
 
@@ -740,10 +931,27 @@ export default {
   gap: 10px;
 }
 
+.toolbar-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+
 .toolbar-title {
   margin: 0;
   font-weight: 700;
-  color: #222;
+  color: var(--text-color);
+}
+
+.theme-toggle {
+  border: none;
+  border-radius: 999px;
+  padding: 7px 10px;
+  background: var(--toggle-bg);
+  color: var(--toggle-text);
+  font-size: 0.9rem;
+  cursor: pointer;
 }
 
 .toolbar-meta {
@@ -768,8 +976,8 @@ export default {
   align-items: center;
   padding: 6px 10px;
   border-radius: 999px;
-  background: #fdf2f8;
-  color: #be185d;
+  background: var(--pill-bg);
+  color: var(--pill-text);
   font-size: 0.9rem;
   font-weight: 700;
 }
@@ -781,11 +989,11 @@ export default {
 }
 
 .category-btn {
-  border: none;
+  border: 1px solid var(--button-border);
   border-radius: 999px;
   padding: 8px 12px;
-  background: linear-gradient(135deg, #fff2f7, #f4f4f4);
-  color: #6b4f5b;
+  background: var(--button-bg);
+  color: var(--button-text);
   font-size: 0.95rem;
   cursor: pointer;
   transition: all 0.2s ease;
@@ -801,8 +1009,8 @@ export default {
 }
 
 .category-btn.active {
-  background: linear-gradient(135deg, #ff7aa2, #ff5d8f);
-  color: white;
+  background: var(--button-active-bg);
+  color: var(--button-active-text);
   box-shadow: 0 6px 14px rgba(255, 93, 143, 0.25);
 }
 
@@ -1077,30 +1285,92 @@ export default {
 
 .detail-panel {
   position: absolute;
-  right: 16px;
-  bottom: 16px;
-  width: min(320px, calc(100% - 32px));
-  background: rgba(255, 255, 255, 0.96);
-  border: 1px solid #f2c7d4;
-  border-radius: 16px;
-  padding: 16px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+  width: min(260px, calc(100% - 32px));
+  background: var(--detail-bg);
+  color: var(--detail-text);
+  border: 1px solid var(--detail-border);
+  border-radius: 18px;
+  padding: 12px 14px;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.14);
   z-index: 30;
+  overflow: hidden;
+}
+
+.detail-content {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.detail-header {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.detail-badge {
+  display: inline-flex;
+  align-self: flex-start;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: var(--detail-badge-bg);
+  color: var(--detail-badge-text);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.detail-description {
+  margin: 0;
+  color: var(--detail-text);
+  font-size: 0.95rem;
+  line-height: 1.5;
+}
+
+.detail-address {
+  margin: 0;
+  color: var(--detail-text);
+  font-size: 0.9rem;
+  line-height: 1.5;
+  opacity: 0.9;
+}
+
+.detail-image {
+  width: 100%;
+  max-height: 160px;
+  object-fit: cover;
+  border-radius: 14px;
+  border: 1px solid #f3dce4;
+}
+
+.detail-placeholder {
+  width: 100%;
+  min-height: 120px;
+  border-radius: 14px;
+  border: 1px dashed #f0c8d6;
+  background: linear-gradient(135deg, #fff7fa, #fdf2f8);
+  color: #a24a67;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.95rem;
+  font-weight: 600;
 }
 
 .detail-close {
   position: absolute;
-  top: 8px;
-  right: 8px;
+  top: 10px;
+  right: 10px;
   border: none;
   background: transparent;
   font-size: 1rem;
   cursor: pointer;
+  color: var(--detail-text);
 }
 
 .map-area {
   flex: 1;
   min-height: 0;
+  background: var(--map-bg);
 }
 
 .chat-float-button {
@@ -1253,11 +1523,11 @@ export default {
 :deep(.cute-bubble) {
   padding: 10px 12px;
   border-radius: 16px;
-  background: linear-gradient(135deg, #fff8fb, #ffe8f0);
-  border: 2px solid #ff8fab;
+  background: var(--bubble-bg);
+  border: 2px solid var(--bubble-border);
   box-shadow: 0 6px 16px rgba(255, 107, 107, 0.2);
   font-size: 13px;
-  color: #7a3d5b;
+  color: var(--bubble-text);
   white-space: nowrap;
   transform: translateY(-6px);
 }
@@ -1265,11 +1535,11 @@ export default {
 :deep(.cute-bubble__title) {
   font-weight: 800;
   margin-bottom: 4px;
-  color: #ff5d8f;
+  color: var(--bubble-title);
 }
 
 :deep(.cute-bubble__desc) {
   font-size: 12px;
-  color: #8a5a6b;
+  color: var(--bubble-desc);
 }
 </style>
