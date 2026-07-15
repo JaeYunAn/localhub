@@ -42,6 +42,50 @@
       <h3>{{ selectedPlace.title }}</h3>
       <p>{{ selectedPlace.description }}</p>
     </div>
+
+    <button class="chat-float-button" @click="toggleChatbot" :class="{ open: chatOpen }">
+      <span v-if="!chatOpen">💬</span>
+      <span v-else>✕</span>
+    </button>
+
+    <div v-if="chatOpen" class="chatbot-panel">
+      <div class="chatbot-header">
+        <div>
+          <p class="chatbot-title">LocalHub AI</p>
+          <p class="chatbot-subtitle">서울 여행 정보와 지역 추천을 자연어로 물어보세요.</p>
+        </div>
+        <button class="chatbot-close" @click="toggleChatbot">✕</button>
+      </div>
+
+      <div class="chatbot-messages" ref="chatMessagesRef">
+        <div
+          v-for="(message, index) in chatMessages"
+          :key="index"
+          class="chat-message"
+          :class="message.role"
+        >
+          <div class="chat-bubble">{{ message.content }}</div>
+        </div>
+
+        <div v-if="chatLoading" class="chat-message assistant">
+          <div class="chat-bubble typing">답변을 생성하는 중입니다…</div>
+        </div>
+      </div>
+
+      <div class="chatbot-footer">
+        <p class="chatbot-hint">예: “서울에서 축제 일정 알려줘”, “모범음식점 위치 알려줘”</p>
+        <div class="chatbot-input-row">
+          <input
+            v-model="chatInput"
+            type="text"
+            placeholder="질문을 입력하세요"
+            @keyup.enter.prevent="sendChatMessage"
+          />
+          <button :disabled="chatLoading" @click="sendChatMessage">전송</button>
+        </div>
+        <p class="chatbot-warning">API 키는 .env의 VITE_OPENAI_API_KEY로 관리하며, 사용량 제한이 걸린 키만 사용하세요.</p>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -84,12 +128,25 @@ export default {
         여행코스: courseData.items || [],
         축제공연행사: festivalData.items || []
       },
-      seoulLoaded: false
+      seoulLoaded: false,
+
+      chatOpen: false,
+      chatInput: '',
+      chatLoading: false,
+      chatMessages: [
+        {
+          role: 'assistant',
+          content: '안녕하세요! 서울 지역 정보와 축제·추천 질문을 자연어로 물어보세요. 제가 제공된 데이터 기준으로 답변해 드립니다.'
+        }
+      ]
     };
   },
   watch: {
     activeCategories() {
       this.updatePoiVisibility();
+    },
+    chatMessages() {
+      this.$nextTick(() => this.scrollChatToBottom());
     }
   },
   mounted() {
@@ -267,6 +324,121 @@ export default {
         const shouldDim = category && !this.activeCategories.includes(category);
         item.marker.setOpacity(shouldDim ? 0.3 : 1);
       });
+    },
+
+    toggleChatbot() {
+      this.chatOpen = !this.chatOpen;
+      if (this.chatOpen) {
+        this.$nextTick(() => this.scrollChatToBottom());
+      }
+    },
+    scrollChatToBottom() {
+      const container = this.$refs.chatMessagesRef;
+      if (container) {
+        container.scrollTop = container.scrollHeight;
+      }
+    },
+    async sendChatMessage() {
+      const message = this.chatInput.trim();
+      if (!message || this.chatLoading) return;
+
+      this.chatMessages.push({ role: 'user', content: message });
+      this.chatInput = '';
+      this.chatLoading = true;
+
+      try {
+        const answer = await this.getChatbotAnswer(message);
+        this.chatMessages.push({ role: 'assistant', content: answer });
+      } catch (error) {
+        this.chatMessages.push({ role: 'assistant', content: '답변 생성 중 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.' });
+      } finally {
+        this.chatLoading = false;
+      }
+    },
+    buildKnowledgeContext() {
+      return Object.entries(this.seoulDataByCategory)
+        .map(([category, items]) => {
+          const sample = (items || []).slice(0, 8).map(item => {
+            const title = item.title || '제목 없음';
+            const address = item.addr1 || item.addr2 || '주소 미제공';
+            const overview = item.overview || item.description || '';
+            return `- ${title} | ${address} | ${overview}`.trim();
+          }).join('\n');
+
+          return `${category}\n${sample}`;
+        })
+        .join('\n\n');
+    },
+    buildChatMessages(query) {
+      const context = this.buildKnowledgeContext();
+      return [
+        {
+          role: 'system',
+          content: '당신은 서울 지역 여행 정보 도우미입니다. 아래에 제공된 데이터만 근거로 답하세요. 사실이 없으면 모른다고 말하고, 질문에 맞는 카테고리와 위치를 우선적으로 제시하세요.'
+        },
+        {
+          role: 'user',
+          content: `질문: ${query}\n\n데이터:\n${context}`
+        }
+      ];
+    },
+    async getChatbotAnswer(query) {
+      const apiKey = import.meta.env.VITE_OPENAI_API_KEY;
+      if (!apiKey || apiKey === 'your_openai_api_key_here' || apiKey === 'YOUR_OPENAI_API_KEY') {
+        return this.getLocalFallbackAnswer(query);
+      }
+
+      const response = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${apiKey}`
+        },
+        body: JSON.stringify({
+          model: 'gpt-4o-mini',
+          temperature: 0.2,
+          messages: this.buildChatMessages(query)
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error('OpenAI 응답 실패');
+      }
+
+      const data = await response.json();
+      return data?.choices?.[0]?.message?.content?.trim() || '답변을 만들지 못했습니다.';
+    },
+    getLocalFallbackAnswer(query) {
+      const q = query.toLowerCase();
+
+      if (q.includes('축제') || q.includes('행사')) {
+        return this.formatResults('축제공연행사', q, '축제/행사');
+      }
+
+      if (q.includes('맛집') || q.includes('음식') || q.includes('식당') || q.includes('모범')) {
+        return this.formatResults('쇼핑', q, '맛집 또는 음식점');
+      }
+
+      if (q.includes('여행') || q.includes('추천') || q.includes('관광')) {
+        return this.formatResults('관광지', q, '관광지');
+      }
+
+      const categories = Object.keys(this.seoulDataByCategory).join(', ');
+      return `현재는 로컬 데이터 기반으로 바로 답할 수 있습니다. 예시로 ${categories} 정보를 조회할 수 있어요. 더 구체적인 질문을 보내 주세요.`;
+    },
+    formatResults(category, query, label) {
+      const items = (this.seoulDataByCategory[category] || []).filter(item => {
+        const text = `${item.title || ''} ${item.addr1 || ''} ${item.overview || ''}`.toLowerCase();
+        return text.includes(query) || query.split(/\s+/).every(keyword => text.includes(keyword));
+      });
+
+      if (!items.length) {
+        return `${label} 관련 데이터를 찾지 못했습니다. 다른 키워드로 다시 질문해 주세요.`;
+      }
+
+      const topItems = items.slice(0, 3);
+      const lines = topItems.map(item => `- ${item.title || '이름 없음'} (${item.addr1 || '주소 미제공'})`).join('\n');
+      return `${label} 관련 추천 결과입니다.\n${lines}`;
     }
   }
 };
@@ -408,6 +580,153 @@ export default {
 .map-area {
   flex: 1;
   min-height: 0;
+}
+
+.chat-float-button {
+  position: absolute;
+  right: 16px;
+  bottom: 16px;
+  width: 56px;
+  height: 56px;
+  border: none;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #ff7aa2, #ff5d8f);
+  color: white;
+  font-size: 1.3rem;
+  cursor: pointer;
+  box-shadow: 0 8px 20px rgba(255, 93, 143, 0.25);
+  z-index: 40;
+}
+
+.chat-float-button.open {
+  background: linear-gradient(135deg, #52525b, #3f3f46);
+}
+
+.chatbot-panel {
+  position: absolute;
+  right: 16px;
+  bottom: 84px;
+  width: min(360px, calc(100% - 32px));
+  height: min(520px, calc(100vh - 140px));
+  display: flex;
+  flex-direction: column;
+  background: rgba(255, 255, 255, 0.98);
+  border: 1px solid #f1d7e2;
+  border-radius: 20px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.16);
+  overflow: hidden;
+  z-index: 45;
+}
+
+.chatbot-header {
+  padding: 14px 16px;
+  border-bottom: 1px solid #f5e1ea;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: linear-gradient(135deg, #fff8fb, #ffe8f0);
+}
+
+.chatbot-title {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 800;
+  color: #8a2146;
+}
+
+.chatbot-subtitle {
+  margin: 4px 0 0;
+  font-size: 0.8rem;
+  color: #7a5160;
+}
+
+.chatbot-close {
+  border: none;
+  background: transparent;
+  font-size: 1rem;
+  cursor: pointer;
+}
+
+.chatbot-messages {
+  flex: 1;
+  padding: 12px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: #fffdfd;
+}
+
+.chat-message {
+  display: flex;
+}
+
+.chat-message.user {
+  justify-content: flex-end;
+}
+
+.chat-bubble {
+  max-width: 90%;
+  padding: 10px 12px;
+  border-radius: 14px;
+  font-size: 0.95rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+.chat-message.assistant .chat-bubble {
+  background: #fff0f5;
+  color: #7a3d5b;
+}
+
+.chat-message.user .chat-bubble {
+  background: linear-gradient(135deg, #ff7aa2, #ff5d8f);
+  color: white;
+}
+
+.chatbot-footer {
+  padding: 12px;
+  border-top: 1px solid #f5e1ea;
+  background: white;
+}
+
+.chatbot-hint {
+  margin: 0 0 8px;
+  font-size: 0.8rem;
+  color: #8a6a75;
+}
+
+.chatbot-input-row {
+  display: flex;
+  gap: 8px;
+}
+
+.chatbot-input-row input {
+  flex: 1;
+  border: 1px solid #f0d9e2;
+  border-radius: 999px;
+  padding: 10px 12px;
+  outline: none;
+}
+
+.chatbot-input-row button {
+  border: none;
+  border-radius: 999px;
+  padding: 10px 14px;
+  background: linear-gradient(135deg, #ff7aa2, #ff5d8f);
+  color: white;
+  cursor: pointer;
+}
+
+.chatbot-input-row button:disabled {
+  opacity: 0.7;
+  cursor: wait;
+}
+
+.chatbot-warning {
+  margin: 8px 0 0;
+  font-size: 0.74rem;
+  color: #b47b8d;
 }
 
 :deep(.cute-bubble) {
