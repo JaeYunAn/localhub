@@ -16,17 +16,7 @@
 
     <div v-if="mapReady" class="toolbar">
       <div class="toolbar-inner">
-        <!-- 축제 캘린더 UI (툴바 내부에 넣으세요) -->
-        <div v-if="activeCategories.includes('축제공연행사')" class="festival-panel">
-          <div class="festival-controls">
-                   <label>여행 시작일</label>
-            <input type="date" v-model="festivalStartDate" />
-            <label>여행 종료일</label>
-            <input type="date" v-model="festivalEndDate" />
-            <button @click="filterFestivalByDate">검색</button>
-                   <button @click="clearFestivalFilter" type="button">초기화</button>
-          </div>
-        </div>
+        <!-- (이전) 전역 축제 캘린더 패널은 제거됨. 각 카테고리 버튼 옆에 팝업으로 렌더링됩니다. -->
         <div class="toolbar-top">
           <p class="toolbar-title" role="button" @click="goHome" title="메인으로 이동" style="cursor: pointer">EODIHOT</p>
           <button class="theme-toggle" @click="toggleTheme">{{ isDarkMode ? '☀️ 라이트' : '🌙 다크' }}</button>
@@ -38,16 +28,33 @@
           </button>
         </div>
         <div v-if="showExplorerControls" class="category-list">
-          <button
-            v-for="c in categories"
-            :key="c"
-            class="category-btn"
-            :class="{ active: activeCategories.includes(c) }"
-            @click="toggleCategory(c)"
-          >
-            <span class="emoji">✨</span>
-            <span>{{ c }}</span>
-          </button>
+          <div v-for="c in categories" :key="c" class="category-item">
+            <button
+              class="category-btn"
+              :class="{ active: activeCategories.includes(c) }"
+              @click="toggleCategory(c)"
+            >
+              <span class="emoji">✨</span>
+              <span>{{ c }}</span>
+            </button>
+
+            <!-- 축제 카테고리 버튼 옆에만 보이는 팝업 -->
+            <div
+              v-if="c === '축제공연행사'"
+              class="festival-popup"
+              v-show="activeCategories.includes('축제공연행사')"
+              @click.stop
+            >
+              <div class="festival-controls">
+                <label>여행 시작일</label>
+                <input type="date" v-model="festivalStartDate" />
+                <label>여행 종료일</label>
+                <input type="date" v-model="festivalEndDate" />
+                <button @click="filterFestivalByDate">검색</button>
+                <button @click="clearFestivalFilter" type="button">초기화</button>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -1132,11 +1139,42 @@ export default {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+  position: relative;
 }
 
-.festival-panel { display:flex; gap:8px; align-items:center; margin-top:8px; }
+.category-item {
+  position: relative;
+  display: inline-block;
+}
+
+.festival-popup {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  min-width: 300px;
+  background: var(--card-bg);
+  color: var(--card-text);
+  border: 1px solid var(--toolbar-border);
+  border-radius: 10px;
+  padding: 8px;
+  box-shadow: 0 8px 20px rgba(0,0,0,0.12);
+  z-index: 50;
+}
+
+.festival-controls {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
 .festival-controls input[type="date"] { padding:6px; border-radius:6px; border:1px solid #ddd; }
 .festival-controls button { padding:6px 10px; border-radius:8px; margin-left:6px; cursor:pointer; }
+.festival-list { padding: 8px 16px; border-top: 1px dashed #f0c7d6; }
+.festival-list h4 { margin: 6px 0; font-size: 0.95rem; }
+.festival-list ul { padding-left: 12px; margin: 0; }
+.festival-list li { margin: 6px 0; }
+.festival-list button { background: transparent; border: none; color: #be185d; cursor: pointer; text-align: left; padding: 0; }
 .festival-list { padding: 8px 16px; border-top: 1px dashed #f0c7d6; }
 .festival-list h4 { margin: 6px 0; font-size: 0.95rem; }
 .festival-list ul { padding-left: 12px; margin: 0; }
