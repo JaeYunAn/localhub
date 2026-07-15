@@ -17,16 +17,16 @@
     <div v-if="mapReady" class="toolbar">
       <div class="toolbar-inner">
         <div class="toolbar-top">
-          <p class="toolbar-title">카카오맵이 먼저 보이고, 기능은 그 다음에 표시됩니다.</p>
+          <p class="toolbar-title">EODIHOT</p>
           <button class="theme-toggle" @click="toggleTheme">{{ isDarkMode ? '☀️ 라이트' : '🌙 다크' }}</button>
         </div>
-        <div class="toolbar-meta">
+        <div v-if="showExplorerControls" class="toolbar-meta">
           <span class="count-pill">선택된 카테고리 수: {{ activeCategories.length }}</span>
           <button class="community-toggle-btn" @click="toggleCommunityPanel">
             {{ showCommunityPanel ? '커뮤니티 닫기' : '커뮤니티 열기' }}
           </button>
         </div>
-        <div class="category-list">
+        <div v-if="showExplorerControls" class="category-list">
           <button
             v-for="c in categories"
             :key="c"
@@ -253,6 +253,7 @@ export default {
         }
       ],
       showCommunityPanel: false,
+      showExplorerControls: false,
       communityCategoryFilter: '전체',
       communityStorageKey: 'localhub-seoul-community-posts',
       communityPosts: [],
@@ -336,7 +337,7 @@ export default {
       } catch (error) {
         console.warn('theme storage error', error);
       }
-      this.isDarkMode = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+      this.isDarkMode = true;
     },
     toggleTheme() {
       this.isDarkMode = !this.isDarkMode;
@@ -423,6 +424,7 @@ export default {
       }
       this.customOverlay = null;
       this.selectedPlace = { title, description, address, image };
+      this.showExplorerControls = this.showExplorerControls || title === '서울';
       this.showCommunityPanel = title === '서울';
 
       this.$nextTick(() => {
@@ -597,7 +599,7 @@ export default {
 
       const options = {
         center: new window.kakao.maps.LatLng(36.5, 127.8),
-        level: 7
+        level: 12
       };
       this.map = new window.kakao.maps.Map(container, options);
       this.mapReady = true;
@@ -620,17 +622,15 @@ export default {
         window.kakao.maps.event.addListener(marker, 'click', () => {
           this.map.setLevel(r.level);
           this.map.setCenter(new window.kakao.maps.LatLng(r.lat, r.lng));
+          this.closeDetailPanel();
           if (r.name === '서울') {
+            this.showExplorerControls = true;
+            this.showCommunityPanel = true;
             this.loadSeoulPois();
+          } else {
+            this.showExplorerControls = false;
+            this.showCommunityPanel = false;
           }
-          this.showBubble(
-            marker,
-            r.name,
-            r.name === '서울' ? '서울 여행지 데이터를 불러왔어요.' : `${r.name} 지역의 여행 정보를 확인해보세요.`,
-            '',
-            '',
-            marker.getPosition()
-          );
         });
         this.regionMarkers.push(marker);
       });
@@ -936,8 +936,11 @@ export default {
 
 .toolbar-title {
   margin: 0;
-  font-weight: 700;
+  font-size: clamp(2rem, 4.5vw, 3rem);
+  font-weight: 900;
+  letter-spacing: 0.14em;
   color: var(--text-color);
+  text-transform: uppercase;
 }
 
 .theme-toggle {
