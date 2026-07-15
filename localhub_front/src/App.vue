@@ -72,15 +72,7 @@
         </div>
 
         <div class="community-summary">
-          <!-- 필터 결과 목록 (커뮤니티 패널 안) -->
-          <div v-if="filteredFestivalEvents && filteredFestivalEvents.length" class="festival-list">
-            <h4>기간에 해당하는 축제/행사 ({{ filteredFestivalEvents.length }})</h4>
-            <ul>
-                       <li v-for="evt in filteredFestivalEvents" :key="evt.contentid">
-                <button type="button" @click="zoomToFestival(evt)">{{ evt.title }} — {{ evt.eventplace || evt.addr1 }}</button>
-              </li>
-            </ul>
-          </div>          
+          <!-- 필터 결과 목록 (커뮤니티 패널 안) -->          
           <span>표시 중 {{ visibleCommunityPosts.length }}개</span>
           <span>비밀번호로만 수정/삭제</span>
         </div>
