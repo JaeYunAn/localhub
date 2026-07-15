@@ -16,8 +16,19 @@
 
     <div v-if="mapReady" class="toolbar">
       <div class="toolbar-inner">
+        <!-- 축제 캘린더 UI (툴바 내부에 넣으세요) -->
+        <div v-if="activeCategories.includes('축제공연행사')" class="festival-panel">
+          <div class="festival-controls">
+                   <label>여행 시작일</label>
+            <input type="date" v-model="festivalStartDate" />
+            <label>여행 종료일</label>
+            <input type="date" v-model="festivalEndDate" />
+            <button @click="filterFestivalByDate">검색</button>
+                   <button @click="clearFestivalFilter" type="button">초기화</button>
+          </div>
+        </div>
         <div class="toolbar-top">
-          <p class="toolbar-title">EODIHOT</p>
+          <p class="toolbar-title" role="button" @click="goHome" title="메인으로 이동" style="cursor: pointer">EODIHOT</p>
           <button class="theme-toggle" @click="toggleTheme">{{ isDarkMode ? '☀️ 라이트' : '🌙 다크' }}</button>
         </div>
         <div v-if="showExplorerControls" class="toolbar-meta">
@@ -54,6 +65,15 @@
         </div>
 
         <div class="community-summary">
+          <!-- 필터 결과 목록 (커뮤니티 패널 안) -->
+          <div v-if="filteredFestivalEvents && filteredFestivalEvents.length" class="festival-list">
+            <h4>기간에 해당하는 축제/행사 ({{ filteredFestivalEvents.length }})</h4>
+            <ul>
+                       <li v-for="evt in filteredFestivalEvents" :key="evt.contentid">
+                <button type="button" @click="zoomToFestival(evt)">{{ evt.title }} — {{ evt.eventplace || evt.addr1 }}</button>
+              </li>
+            </ul>
+          </div>          
           <span>표시 중 {{ visibleCommunityPosts.length }}개</span>
           <span>비밀번호로만 수정/삭제</span>
         </div>
@@ -209,6 +229,12 @@ import festivalData from '../서울_축제공연행사.json';
 export default {
   data() {
     return {
+      // festival calendar state
+      showFestivalPanel: false,
+      festivalStartDate: '', // yyyy-mm-dd from <input type="date">
+      festivalEndDate: '',
+      filteredFestivalEvents: [],
+      festivalMarkers: [],
       map: null,
       regionMarkers: [],
       poiMarkersByCategory: {},
@@ -305,6 +331,110 @@ export default {
     this.poiMarkersByCategory = {};
   },
   methods: {
+    // 날짜 문자열(YYYYMMDD) -> Date (local, 0-based month)
+    parseYYYYMMDD(yyyymmdd) {
+      if (!yyyymmdd) return null;
+      const s = String(yyyymmdd);
+      if (s.length !== 8) return null;
+      const y = Number(s.slice(0,4)), m = Number(s.slice(4,6))-1, d = Number(s.slice(6,8));
+      return new Date(y, m, d);
+    },
+
+    // 입력된 date input(yyyy-mm-dd) -> Date
+    parseInputDate(input) {
+      if (!input) return null;
+      const parts = input.split('-');
+      if (parts.length !== 3) return null;
+      return new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
+    },
+
+    // 축제 필터 실행
+    filterFestivalByDate() {
+      const start = this.parseInputDate(this.festivalStartDate);
+      const end = this.parseInputDate(this.festivalEndDate);
+      if (!start || !end) {
+        window.alert('시작일과 종료일을 모두 입력하세요.');
+        return;
+      }
+      if (start > end) {
+        window.alert('시작일이 종료일보다 빠른 날짜여야 합니다.');
+        return;
+      }
+
+      const items = (this.seoulDataByCategory['축제공연행사'] || []).filter(item => {
+        const evStart = this.parseYYYYMMDD(item.eventstartdate);
+        const evEnd = this.parseYYYYMMDD(item.eventenddate);
+        if (!evStart && !evEnd) return false;
+        // 이벤트 기간이 사용자가 지정한 기간과 겹치는지 검사
+        const aStart = evStart || evEnd;
+        const aEnd = evEnd || evStart;
+        return aStart <= end && aEnd >= start;
+      });
+
+      this.filteredFestivalEvents = items;
+      this.clearFestivalMarkers();
+      this.createFestivalMarkers(items);
+    },
+
+    // 마커 생성 (필터 결과만 표시)
+    createFestivalMarkers(items) {
+      if (!this.map || !items || !items.length) return;
+      items.forEach(item => {
+        const lat = Number(item.mapy);
+        const lng = Number(item.mapx);
+        if (Number.isNaN(lat) || Number.isNaN(lng)) return;
+        const pos = new window.kakao.maps.LatLng(lat, lng);
+        const marker = new window.kakao.maps.Marker({
+          position: pos,
+          map: this.map,
+          image: this.createCustomMarkerImage('🎪', this.categoryColors['축제공연행사'] || '#ef476f')
+        });
+        const overlay = new window.kakao.maps.CustomOverlay({
+          position: pos,
+          content: this.createBubbleContent(item.title, item.eventplace || item.addr1 || ''),
+          yAnchor: 1.25
+        });
+        marker.addListener && marker.addListener('click', () => {
+          const address = this.getPlaceAddress(item);
+          const image = this.getPlaceImage(item);
+          const description = item.program || item.overview || '';
+          this.showBubble(marker, item.title, description, address, image, pos);
+        });
+        this.festivalMarkers.push({ marker, overlay, item });
+      });
+    },
+
+    // 기존 필터 마커 정리
+    clearFestivalMarkers() {
+      (this.festivalMarkers || []).forEach(obj => {
+        try { obj.marker && obj.marker.setMap(null); } catch {}
+        try { obj.overlay && obj.overlay.setMap(null); } catch {}
+      });
+      this.festivalMarkers = [];
+    },
+
+    // 초기화
+    clearFestivalFilter() {
+      this.filteredFestivalEvents = [];
+      this.festivalStartDate = '';
+      this.festivalEndDate = '';
+      this.clearFestivalMarkers();
+    },
+
+    // 목록에서 클릭하면 지도 중앙/오버레이 열기
+    zoomToFestival(item) {
+      const lat = Number(item.mapy);
+      const lng = Number(item.mapx);
+      if (!this.map || Number.isNaN(lat) || Number.isNaN(lng)) return;
+      const pos = new window.kakao.maps.LatLng(lat, lng);
+      this.map.setCenter(pos);
+      this.map.setLevel(6);
+      // find created marker and trigger bubble
+      const found = (this.festivalMarkers || []).find(f => f.item.contentid === item.contentid);
+      if (found) {
+        this.showBubble(found.marker, item.title, item.program || item.overview || '', this.getPlaceAddress(item), this.getPlaceImage(item), pos);
+      }
+    },
     createCustomMarkerImage(label, color) {
       const svg = `
         <svg xmlns="http://www.w3.org/2000/svg" width="60" height="60" viewBox="0 0 60 60">
@@ -347,11 +477,28 @@ export default {
         console.warn('theme storage write error', error);
       }
     },
+    goHome() {
+      try {
+        window.location.href = '/';
+      } catch (e) {
+        window.location.replace('/');
+      }
+    },
     toggleCategory(category) {
       if (this.activeCategories.includes(category)) {
         this.activeCategories = this.activeCategories.filter(item => item !== category);
+        if (category === '축제공연행사') {
+          this.showFestivalPanel = false;
+          this.clearFestivalFilter();
+        }
       } else {
         this.activeCategories = [...this.activeCategories, category];
+        if (category === '축제공연행사') {
+          this.showFestivalPanel = true;
+          // 축제 카테고리 기본 동작: 기존 축제 마커는 숨김(필터 사용시 새 마커만 보이게)
+          const existing = this.poiMarkersByCategory['축제공연행사'] || [];
+          existing.forEach(({ marker, overlay }) => { marker.setMap(null); overlay.setMap(null); });
+        }
       }
     },
     closeDetailPanel() {
@@ -986,6 +1133,15 @@ export default {
   flex-wrap: wrap;
   gap: 8px;
 }
+
+.festival-panel { display:flex; gap:8px; align-items:center; margin-top:8px; }
+.festival-controls input[type="date"] { padding:6px; border-radius:6px; border:1px solid #ddd; }
+.festival-controls button { padding:6px 10px; border-radius:8px; margin-left:6px; cursor:pointer; }
+.festival-list { padding: 8px 16px; border-top: 1px dashed #f0c7d6; }
+.festival-list h4 { margin: 6px 0; font-size: 0.95rem; }
+.festival-list ul { padding-left: 12px; margin: 0; }
+.festival-list li { margin: 6px 0; }
+.festival-list button { background: transparent; border: none; color: #be185d; cursor: pointer; text-align: left; padding: 0; }
 
 .category-btn {
   border: 1px solid var(--button-border);
