@@ -379,8 +379,7 @@ export default {
       });
 
       this.filteredFestivalEvents = items;
-      this.clearFestivalMarkers();
-      this.createFestivalMarkers(items);
+      this.updatePoiVisibility();
     },
 
     // 마커 생성 (필터 결과만 표시)
@@ -425,7 +424,7 @@ export default {
       this.filteredFestivalEvents = [];
       this.festivalStartDate = '';
       this.festivalEndDate = '';
-      this.clearFestivalMarkers();
+      this.updatePoiVisibility();
     },
 
     // 목록에서 클릭하면 지도 중앙/오버레이 열기
@@ -437,7 +436,7 @@ export default {
       this.map.setCenter(pos);
       this.map.setLevel(6);
       // find created marker and trigger bubble
-      const found = (this.festivalMarkers || []).find(f => f.item.contentid === item.contentid);
+      const found = (this.poiMarkersByCategory['축제공연행사'] || []).find(obj => obj.item && obj.item.contentid === item.contentid);
       if (found) {
         this.showBubble(found.marker, item.title, item.program || item.overview || '', this.getPlaceAddress(item), this.getPlaceImage(item), pos);
       }
@@ -816,7 +815,7 @@ export default {
             const description = item.overview || (address ? '서울의 추천 여행지예요.' : '서울 여행지예요.');
             this.showBubble(marker, item.title, description, address, image, marker.getPosition());
           });
-          categoryMarkers.push({ marker, overlay });
+          categoryMarkers.push({ marker, overlay, item });
           marker.setMap(this.activeCategories.includes(category) ? this.map : null);
           overlay.setMap(null);
         });
@@ -828,21 +827,32 @@ export default {
     },
     updatePoiVisibility() {
       for (const [cat, items] of Object.entries(this.poiMarkersByCategory)) {
-        const show = this.activeCategories.includes(cat);
-        items.forEach(item => {
-          item.marker.setMap(show ? this.map : null);
-          if (!show) {
-            item.overlay.setMap(null);
-          }
-        });
+        const showCategory = this.activeCategories.includes(cat);
+
+        if (cat === '축제공연행사' && Array.isArray(this.filteredFestivalEvents) && this.filteredFestivalEvents.length) {
+          // 필터가 있으면 필터에 해당하는 마커만 보여줌
+          const ids = new Set(this.filteredFestivalEvents.map(i => i.contentid));
+          items.forEach(obj => {
+            const match = obj.item && ids.has(obj.item.contentid);
+            obj.marker.setMap(match && showCategory ? this.map : null);
+            if (!match) obj.overlay.setMap(null);
+          });
+        } else {
+          // 일반 카테고리 동작
+          items.forEach(obj => {
+            obj.marker.setMap(showCategory ? this.map : null);
+            if (!showCategory) obj.overlay.setMap(null);
+          });
+        }
       }
 
+      // 기존 디밍(불활성 카테고리 투명화)
       const allMarkers = Object.values(this.poiMarkersByCategory).flat();
-      allMarkers.forEach(item => {
-        if (!item.marker || !this.map) return;
-        const category = Object.keys(this.poiMarkersByCategory).find(key => this.poiMarkersByCategory[key].includes(item));
+      allMarkers.forEach(obj => {
+        if (!obj.marker || !this.map) return;
+        const category = Object.keys(this.poiMarkersByCategory).find(k => this.poiMarkersByCategory[k].includes(obj));
         const shouldDim = category && !this.activeCategories.includes(category);
-        item.marker.setOpacity(shouldDim ? 0.3 : 1);
+        obj.marker.setOpacity(shouldDim ? 0.3 : 1);
       });
     },
 
