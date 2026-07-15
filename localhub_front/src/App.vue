@@ -46,12 +46,12 @@
 
       <aside v-if="showCommunityPanel" class="community-panel">
         <div class="community-header">
-          <div>
-            <p class="community-title">{{ selectedPlace?.title || '서울 커뮤니티' }}</p>
-            <p class="community-subtitle">서울 권역의 익명 커뮤니티입니다. 제목·내용·비밀번호로 게시글을 저장하고 관리할 수 있습니다.</p>
-          </div>
-          <button class="community-close" @click="closeCommunityPanel">✕</button>
+          <div class="title-block">
+            <p class="community-title">EODIHOT 커뮤니티</p>
+            <button class="community-toggle-btn community-write-btn" @click="openCompose">글쓰기</button>
         </div>
+        <button class="community-close" @click="closeCommunityPanel">✕</button>
+      </div>
 
         <div class="community-summary">
           <span>표시 중 {{ visibleCommunityPosts.length }}개</span>
@@ -71,7 +71,7 @@
           </button>
         </div>
 
-        <div class="community-post-list">
+        <div v-if="!showCompose" class="community-post-list">
           <div v-if="!visibleCommunityPosts.length" class="community-empty">
             아직 작성된 게시글이 없습니다. 첫 게시글을 남겨보세요.
           </div>
@@ -80,6 +80,7 @@
             v-for="post in visibleCommunityPosts"
             :key="post.id"
             class="community-post-card"
+            :class="{ active: selectedCommunityPost && selectedCommunityPost.id === post.id }"
             @click="selectCommunityPost(post)"
           >
             <div class="post-meta">
@@ -114,7 +115,7 @@
           </div>
         </div>
 
-        <form class="community-compose" @submit.prevent="submitCommunityPost">
+        <form v-if="showCompose" class="community-compose" @submit.prevent="submitCommunityPost">
           <p class="form-title">{{ editingCommunityPostId ? '게시글 수정' : '새 게시글 작성' }}</p>
           <select v-model="communityForm.category">
             <option value="전체">전체</option>
@@ -125,7 +126,7 @@
           <input v-model="communityForm.password" type="password" placeholder="수정/삭제 비밀번호" />
           <div class="form-actions">
             <button type="submit">{{ editingCommunityPostId ? '수정 완료' : '작성 완료' }}</button>
-            <button v-if="editingCommunityPostId" type="button" class="secondary" @click="resetCommunityForm">취소</button>
+            <button type="button" class="secondary" @click="resetCommunityForm">취소</button>
           </div>
         </form>
       </aside>
@@ -151,9 +152,8 @@
       </div>
     </div>
 
-    <button class="chat-float-button" @click="toggleChatbot" :class="{ open: chatOpen }">
-      <span v-if="!chatOpen">💬</span>
-      <span v-else>✕</span>
+    <button class="chat-float-button" @click="openChatbot" :class="{ open: chatOpen }">
+      <span>💬</span>
     </button>
 
     <div v-if="chatOpen" class="chatbot-panel">
@@ -254,6 +254,7 @@ export default {
       ],
       showCommunityPanel: false,
       showExplorerControls: false,
+      showCompose: false,
       communityCategoryFilter: '전체',
       communityStorageKey: 'localhub-seoul-community-posts',
       communityPosts: [],
@@ -263,6 +264,7 @@ export default {
         password: '',
         category: '관광지'
       },
+      isComposing: false,
       editingCommunityPostId: null,
       selectedCommunityPost: null,
       communityDeletePassword: ''
@@ -305,6 +307,15 @@ export default {
     this.poiMarkersByCategory = {};
   },
   methods: {
+    openCompose() {
+      this.resetCommunityForm();
+      this.communityForm.category = this.communityCategoryFilter === '전체' ? '관광지' : this.communityCategoryFilter;
+      this.showCompose = true;
+    },
+    cancelCompose() {
+      this.resetCommunityForm();
+      this.showCompose = false;
+    },
     createCustomMarkerImage(label, color) {
       const svg = `
         <svg xmlns="http://www.w3.org/2000/svg" width="60" height="60" viewBox="0 0 60 60">
@@ -425,7 +436,6 @@ export default {
       this.customOverlay = null;
       this.selectedPlace = { title, description, address, image };
       this.showExplorerControls = this.showExplorerControls || title === '서울';
-      this.showCommunityPanel = title === '서울';
 
       this.$nextTick(() => {
         this.positionDetailPanel(position || marker?.getPosition?.());
@@ -433,7 +443,6 @@ export default {
     },
     closeDetailPanel() {
       this.selectedPlace = null;
-      this.showCommunityPanel = false;
       this.detailPanelStyle = { left: '16px', top: '16px' };
     },
     toggleCommunityPanel() {
@@ -470,10 +479,15 @@ export default {
     resetCommunityForm() {
       this.communityForm = { title: '', content: '', password: '', category: this.communityCategoryFilter === '전체' ? '관광지' : this.communityCategoryFilter };
       this.editingCommunityPostId = null;
+      this.showCompose = false;
     },
     selectCommunityPost(post) {
-      this.selectedCommunityPost = post;
-      this.communityDeletePassword = '';
+      if (this.selectedCommunityPost && this.selectedCommunityPost.id === post.id) {
+        this.selectedCommunityPost = null;
+      } else {
+        this.selectedCommunityPost = post;
+        this.communityDeletePassword = '';
+      }
     },
     startEditCommunityPost(post) {
       this.selectedCommunityPost = post;
@@ -484,6 +498,7 @@ export default {
         password: '',
         category: post.category || '관광지'
       };
+      this.showCompose = true;
     },
     submitCommunityPost() {
       const title = this.communityForm.title.trim();
@@ -692,12 +707,16 @@ export default {
       });
     },
 
-    toggleChatbot() {
-      this.chatOpen = !this.chatOpen;
-      if (this.chatOpen) {
-        this.$nextTick(() => this.scrollChatToBottom());
-      }
+    openChatbot() {
+      if (this.chatOpen) return;
+      this.chatOpen = true;
+      this.$nextTick(() => this.scrollChatToBottom());
     },
+    closeChatbot() {
+      // 오직 이 버튼 호출로만 창이 닫히도록 보장
+      this.chatOpen = false;
+    },
+    
     scrollChatToBottom() {
       const container = this.$refs.chatMessagesRef;
       if (container) {
@@ -1049,6 +1068,16 @@ export default {
   border-bottom: 1px solid #f1f1f1;
 }
 
+.community-header .title-block {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.community-write-btn {
+  padding: 8px 12px;
+  font-weight: 700;
+}
+
 .community-title {
   margin: 0 0 6px;
   font-size: 1rem;
@@ -1130,6 +1159,12 @@ export default {
   cursor: pointer;
 }
 
+.community-post-card.active {
+  border-color: #ff7aa2;
+  box-shadow: 0 8px 20px rgba(255, 93, 143, 0.18);
+  transform: translateY(-2px);
+}
+
 .post-meta,
 .post-footer {
   display: flex;
@@ -1164,6 +1199,9 @@ export default {
   font-size: 0.88rem;
   color: #4b5563;
   line-height: 1.5;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .inline-action {
@@ -1175,7 +1213,18 @@ export default {
 }
 
 .community-detail {
-  padding: 0 16px 12px;
+  position: absolute;
+  right: calc(100% + 16px);
+  top: 16px;
+  width: min(360px, 86vw);
+  z-index: 30;
+  background: var(--card-bg, #fff);
+  color: var(--card-text, #222);
+  border: 1px solid #f0dbe4;
+  border-radius: 12px;
+  box-shadow: 0 8px 20px rgba(255, 93, 143, 0.18); /* 게시글 강조와 동일한 그림자 */
+  transform: translateY(-2px); /* 게시글 강조와 동일한 위치 변화 */
+  transition: box-shadow 0.18s ease, transform 0.12s ease;
 }
 
 .detail-card {
@@ -1540,5 +1589,45 @@ export default {
 :deep(.cute-bubble__desc) {
   font-size: 12px;
   color: var(--bubble-desc);
+}
+
+/* 커뮤니티 패널을 기준으로 상세창을 패널 왼쪽으로 띄우기 */
+.community-panel {
+  position: relative; /* 상세창의 기준 컨테이너로 사용 */
+  z-index: 20;
+}
+
+/* 패널 내부 스크롤과 겹치지 않게 자리 확보(선택사항) */
+.community-post-list {
+  padding-right: 8px;
+}
+
+/* 작은 화면에서는 기존 동작(오버레이 혹은 패널 내부)으로 되돌리기 */
+@media (max-width: 760px) {
+  
+}
+
+/* community detail 외곽/내부 테두리 완전 제거 + 강조 그림자 유지 */
+.community-detail,
+.community-detail .detail-card {
+  border: none !important;
+  outline: none !important;
+}
+
+/* 상세창 강조 효과(게시글 active와 동일) */
+.community-detail {
+  box-shadow: 0 8px 20px rgba(255, 93, 143, 0.18);
+  transform: translateY(-2px);
+}
+
+/* 모바일 안전 처리 */
+@media (max-width: 760px) {
+  .community-detail {
+    position: static;
+    width: 100%;
+    margin: 12px 0 0;
+    transform: none;
+    box-shadow: none;
+  }
 }
 </style>
