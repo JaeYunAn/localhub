@@ -1,5 +1,10 @@
 <template>
   <div class="page-shell" :class="isDarkMode ? 'theme-dark' : 'theme-light'">
+    <div v-if="showSplash" :class="['splash-screen', { 'splash-exit': splashExiting }]">
+      <div class="splash-inner">
+        <h1 class="splash-logo" @click="startApp">EODIHOT</h1>
+      </div>
+    </div>
     <div v-if="!mapReady && !mapError" class="loading-overlay">
       <div class="loading-card">
         <p class="loading-title">카카오맵을 먼저 불러오는 중입니다.</p>
@@ -42,7 +47,7 @@
     </div>
 
     <div class="content-area">
-      <div id="map" class="map-area"></div>
+      <div id="map" :class="['map-area', { visible: mapReady }]" ></div>
 
       <aside v-if="showCommunityPanel" class="community-panel">
         <div class="community-header">
@@ -219,6 +224,8 @@ export default {
         top: '16px'
       },
       isDarkMode: true,
+      showSplash: true,
+      splashExiting: false,
       categories: ['관광지', '레포츠', '문화시설', '쇼핑', '숙박', '여행코스', '축제공연행사'],
       activeCategories: [],
       categoryColors: {
@@ -290,7 +297,7 @@ export default {
   mounted() {
     this.loadCommunityPosts();
     this.initTheme();
-    this.loadKakaoMap();
+    // 맵은 시작 화면에서 'EODIHOT' 클릭 시 로드합니다.
   },
   beforeUnmount() {
     if (this.customOverlay) {
@@ -359,6 +366,18 @@ export default {
       } catch (error) {
         console.warn('theme storage write error', error);
       }
+    },
+    startApp() {
+      if (this.splashExiting) return;
+      // 클릭 즉시 맵 로드를 시작하고 스플래시를 부드럽게 제거
+      this.splashExiting = true;
+      // 맵 로드 시작 (스크립트 비동기 로드)
+      this.loadKakaoMap();
+      // 애니메이션 시간만큼 대기 후 DOM에서 제거
+      setTimeout(() => {
+        this.showSplash = false;
+        this.splashExiting = false;
+      }, 600);
     },
     toggleCategory(category) {
       if (this.activeCategories.includes(category)) {
@@ -1634,5 +1653,84 @@ export default {
     transform: none;
     box-shadow: none;
   }
+}
+
+/* Splash screen styles */
+.splash-screen {
+  position: absolute;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #06080a; /* 어두운 배경 */
+}
+.splash-inner {
+  text-align: center;
+  user-select: none;
+}
+.splash-logo {
+  margin: 0;
+  font-size: clamp(2.4rem, 8vw, 6rem);
+  font-weight: 900;
+  letter-spacing: 0.18em;
+  color: #ffffff;
+  text-transform: uppercase;
+  cursor: pointer;
+  position: relative;
+  display: inline-block;
+  padding: 6px 12px;
+  transition: transform 0.18s ease, opacity 0.28s ease;
+  text-shadow: 0 6px 0 rgba(0,0,0,0.35), 0 18px 36px rgba(0,0,0,0.6);
+}
+.splash-logo:hover { transform: translateY(-6px); }
+/* 흰색 얇은 선 (로고 바로 아래) */
+.splash-logo::before {
+  /* 밑선: 로고 텍스트 폭만큼 정확히 이어지도록 설정 */
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -8px;
+  height: 3px;
+  width: 100%;
+  margin: 0 auto;
+  background: linear-gradient(90deg, rgba(255,255,255,0.98), rgba(255,255,255,0.9));
+  border-radius: 2px;
+  box-shadow: 0 2px 0 rgba(0,0,0,0.18);
+}
+/* 분홍빛 발광(블러) */
+.splash-logo::after {
+  /* 분홍빛 블러: 로고 폭보다 넓게 표시하여 강조선 효과를 만듭니다 */
+  content: '';
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: -18px;
+  height: 12px;
+  width: calc(100% + 140px);
+  background: linear-gradient(90deg, rgba(255,122,162,0.98), rgba(255,255,255,0.9));
+  border-radius: 10px;
+  filter: blur(12px);
+  opacity: 0.92;
+}
+
+/* 스플래시 종료 애니메이션 */
+.splash-screen {
+  transition: opacity 0.6s cubic-bezier(.2,.9,.3,1), transform 0.6s cubic-bezier(.2,.9,.3,1);
+}
+.splash-screen.splash-exit {
+  opacity: 0;
+  transform: scale(0.98) translateY(-6px);
+  pointer-events: none;
+}
+
+/* 지도 페이드인 (mapReady에 의해 visible 클래스가 붙음) */
+.map-area {
+  opacity: 0;
+  transition: opacity 0.6s ease 0.05s;
+}
+.map-area.visible {
+  opacity: 1;
 }
 </style>
