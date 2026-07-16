@@ -26,6 +26,18 @@
           <button class="community-toggle-btn" @click="toggleCommunityPanel">
             {{ showCommunityPanel ? '커뮤니티 닫기' : '커뮤니티 열기' }}
           </button>
+          <!-- 검색 배너: 지역 선택시(showExplorerControls)에만 노출 -->
+          <div v-if="showExplorerControls" class="toolbar-search">
+            <input
+              v-model="searchQuery"
+              type="search"
+              placeholder="장소명/주소/설명으로 검색하세요"
+              @keyup.enter="runSearch"
+              aria-label="지역 검색"
+            />
+            <button @click="runSearch">검색</button>
+            <button v-if="searchQuery" @click="clearSearch" type="button">초기화</button>
+          </div>
         </div>
         <div v-if="showExplorerControls" class="category-list">
           <div v-for="c in categories" :key="c" class="category-item">
@@ -232,6 +244,8 @@ export default {
       showFestivalPanel: false,
       festivalStartDate: '', // yyyy-mm-dd from <input type="date">
       festivalEndDate: '',
+      searchQuery: '',
+      searchMode: false, // 검색 중이면 true
       filteredFestivalEvents: [],
       festivalMarkers: [],
       map: null,
@@ -400,6 +414,47 @@ export default {
         });
         this.festivalMarkers.push({ marker, overlay, item });
       });
+    },
+
+    runSearch() {
+      const q = String(this.searchQuery || '').trim().toLowerCase();
+      this.searchMode = !!q;
+      if (!this.map || !this.poiMarkersByCategory) {
+        this.searchMode = false;
+        return;
+      }
+
+      if (!q) {
+        this.updatePoiVisibility();
+        return;
+      }
+
+      Object.values(this.poiMarkersByCategory).flat().forEach(obj => {
+        try {
+          const item = obj.item || {};
+          const text = `${item.title || ''} ${item.addr1 || ''} ${item.overview || ''}`.toLowerCase();
+          const match = text.includes(q);
+          obj.marker.setMap(match ? this.map : null);
+          if (!match && obj.overlay) obj.overlay.setMap(null);
+        } catch (e) { /* ignore */ }
+      });
+
+      if (Array.isArray(this.festivalMarkers) && this.festivalMarkers.length) {
+        this.festivalMarkers.forEach(({ marker, overlay, item }) => {
+          try {
+            const text = `${item.title || ''} ${item.eventplace || item.addr1 || ''} ${item.overview || ''}`.toLowerCase();
+            const match = text.includes(q);
+            marker.setMap(match ? this.map : null);
+            if (!match && overlay) overlay.setMap(null);
+          } catch (e) {}
+        });
+      }
+    },
+
+    clearSearch() {
+      this.searchQuery = '';
+      this.searchMode = false;
+      this.updatePoiVisibility();
     },
 
     // 기존 필터 마커 정리
@@ -818,6 +873,29 @@ export default {
       this.updatePoiVisibility();
     },
     updatePoiVisibility() {
+      // 검색 모드: 검색어가 있으면 검색 결과만 보여주고 기존 카테고리 필터 동작은 무시
+      if (this.searchMode && this.searchQuery.trim()) {
+        const q = String(this.searchQuery).trim().toLowerCase();
+        Object.values(this.poiMarkersByCategory).flat().forEach(obj => {
+          try {
+            const item = obj.item || {};
+            const text = `${item.title || ''} ${item.addr1 || ''} ${item.overview || ''}`.toLowerCase();
+            const match = text.includes(q);
+            obj.marker.setMap(match ? this.map : null);
+            if (!match && obj.overlay) obj.overlay.setMap(null);
+          } catch (e) {}
+        });
+        // 축제 마커도 동일 처리
+        if (Array.isArray(this.festivalMarkers) && this.festivalMarkers.length) {
+          this.festivalMarkers.forEach(({ marker, overlay, item }) => {
+            const text = `${item.title || ''} ${item.eventplace || item.addr1 || ''} ${item.overview || ''}`.toLowerCase();
+            const match = text.includes(q);
+            try { marker.setMap(match ? this.map : null); } catch {}
+            try { if (!match) overlay.setMap(null); } catch {}
+          });
+        }
+        return;
+      }
       for (const [cat, items] of Object.entries(this.poiMarkersByCategory)) {
         const showCategory = this.activeCategories.includes(cat);
 
@@ -967,6 +1045,12 @@ export default {
 </script>
 
 <style scoped>
+.toolbar-search { display:flex; gap:8px; align-items:center; margin-top:8px; }
+
+.toolbar-search input { flex:1; padding:8px 10px; border-radius:8px; border:1px solid #ddd; }
+
+.toolbar-search button { padding:8px 10px; border-radius:8px; cursor:pointer; }
+
 .page-shell {
   height: 100vh;
   display: flex;
