@@ -19,25 +19,29 @@
         <!-- (이전) 전역 축제 캘린더 패널은 제거됨. 각 카테고리 버튼 옆에 팝업으로 렌더링됩니다. -->
         <div class="toolbar-top">
           <p class="toolbar-title" role="button" @click="goHome" title="메인으로 이동" style="cursor: pointer">EODIHOT</p>
-          <button class="theme-toggle" @click="toggleTheme">{{ isDarkMode ? '☀️ 라이트' : '🌙 다크' }}</button>
-        </div>
-        <div v-if="showExplorerControls" class="toolbar-meta">
-          <span class="count-pill">선택된 카테고리 수: {{ activeCategories.length }}</span>
-          <button class="community-toggle-btn" @click="toggleCommunityPanel">
-            {{ showCommunityPanel ? '커뮤니티 닫기' : '커뮤니티 열기' }}
-          </button>
-          <!-- 검색 배너: 지역 선택시(showExplorerControls)에만 노출 -->
-          <div v-if="showExplorerControls" class="toolbar-search">
-            <input
-              v-model="searchQuery"
-              type="search"
-              placeholder="장소명/주소/설명으로 검색하세요"
-              @keyup.enter="runSearch"
-              aria-label="지역 검색"
-            />
-            <button @click="runSearch">검색</button>
-            <button v-if="searchQuery" @click="clearSearch" type="button">초기화</button>
+
+          <div class="toolbar-banner">
+            <!-- 1) 다크 모드 토글 (항상 보임) -->
+            <button class="theme-toggle" @click="toggleTheme">{{ isDarkMode ? '☀️ 라이트' : '🌙 다크' }}</button>
+
+            <!-- 2) 커뮤니티 열기/닫기 버튼 (탐색 컨트롤을 켰을 때만 보임) -->
+            <button v-if="showExplorerControls" class="community-toggle-btn" @click="toggleCommunityPanel">
+              {{ showCommunityPanel ? '커뮤니티 닫기' : '커뮤니티 열기' }}
+            </button>
           </div>
+        </div>
+
+        <!-- toolbar-meta removed: 선택된 카테고리 수 표시 삭제 -->
+        <!-- 검색창: 커뮤니티 버튼 아래, 카테고리 리스트 바로 위에 위치 (초기화 버튼 제거) -->
+        <div v-if="showExplorerControls" class="toolbar-search-inline">
+          <input
+            v-model="searchQuery"
+            type="search"
+            placeholder="장소명/주소/설명으로 검색하세요"
+            @keyup.enter="runSearch"
+            aria-label="지역 검색"
+          />
+          <button class="search-btn" @click="runSearch">검색</button>
         </div>
         <div v-if="showExplorerControls" class="category-list">
           <div v-for="c in categories" :key="c" class="category-item">
@@ -425,9 +429,12 @@ export default {
       }
 
       if (!q) {
+        this.searchMode = false;
         this.updatePoiVisibility();
         return;
       }
+
+      let firstPos = null;
 
       Object.values(this.poiMarkersByCategory).flat().forEach(obj => {
         try {
@@ -435,6 +442,9 @@ export default {
           const text = `${item.title || ''} ${item.addr1 || ''} ${item.overview || ''}`.toLowerCase();
           const match = text.includes(q);
           obj.marker.setMap(match ? this.map : null);
+          if (match && !firstPos && obj.marker && obj.marker.getPosition) {
+            firstPos = obj.marker.getPosition();
+          }
           if (!match && obj.overlay) obj.overlay.setMap(null);
         } catch (e) { /* ignore */ }
       });
@@ -445,9 +455,23 @@ export default {
             const text = `${item.title || ''} ${item.eventplace || item.addr1 || ''} ${item.overview || ''}`.toLowerCase();
             const match = text.includes(q);
             marker.setMap(match ? this.map : null);
+            if (match && !firstPos && marker && marker.getPosition) {
+              firstPos = marker.getPosition();
+            }
             if (!match && overlay) overlay.setMap(null);
           } catch (e) {}
         });
+      }
+
+      // 첫 결과가 있으면 지도 중앙으로 이동 (약간 줌 레벨 조정)
+      if (firstPos && this.map && firstPos.getLat && firstPos.getLng) {
+        try {
+          this.map.setCenter(firstPos);
+          // 필요하면 줌 레벨을 조정: this.map.setLevel(6);
+        } catch (e) { /* ignore */ }
+      } else {
+        // 결과 없음이면 안내(선택사항)
+        // window.alert('검색 결과가 없습니다.');
       }
     },
 
@@ -1051,6 +1075,59 @@ export default {
 
 .toolbar-search button { padding:8px 10px; border-radius:8px; cursor:pointer; }
 
+/* 배너 폭/간격 축소 */
+.toolbar-banner {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: flex-end;
+  min-width: 220px;
+  max-width: 280px;
+}
+
+/* 버튼 크기 통일 (작게) */
+.toolbar-banner .theme-toggle,
+.toolbar-banner .community-toggle-btn {
+  width: 110px;
+  height: 36px;
+  padding: 6px 8px;
+  font-size: 0.9rem;
+  border-radius: 10px;
+  box-sizing: border-box;
+}
+
+/* 검색창 (카테고리 버튼과 같은 행/높이) */
+.toolbar-search-inline {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  width: 100%;
+  margin-top: 4px;
+  justify-content: flex-end; /* 오른쪽 끝 정렬 */
+}
+
+.toolbar-search-inline input {
+  width: 16.666%; /* 기존 대비 1/6 수준 */
+  min-width: 56px;
+  height: 36px;
+  padding: 6px 10px;
+  border-radius: 10px;
+  border: 1px solid #ddd;
+  box-sizing: border-box;
+  font-size: 0.9rem;
+}
+
+.toolbar-search-inline .search-btn,
+.toolbar-search-inline .search-clear {
+  height: 36px;
+  padding: 6px 10px;
+  border-radius: 10px;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+
+.toolbar-search button { padding:8px 10px; border-radius:8px; cursor:pointer; }
+
 .page-shell {
   height: 100vh;
   display: flex;
@@ -1155,7 +1232,7 @@ export default {
 }
 
 .toolbar {
-  padding: 12px 16px;
+  padding: 8px 12px;
   background: var(--toolbar-bg);
   border-bottom: 1px solid var(--toolbar-border);
   z-index: 10;
@@ -1164,7 +1241,7 @@ export default {
 .toolbar-inner {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 6px;
 }
 
 .toolbar-top {
