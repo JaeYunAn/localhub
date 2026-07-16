@@ -5,6 +5,133 @@
         <h1 class="splash-logo" @click="startApp">EODIHOT</h1>
       </div>
     </div>
+    <div v-if="showCatalogScreen" class="catalog-screen">
+      <div class="catalog-inner">
+        <aside class="catalog-left">
+          <h3>카테고리</h3>
+          <ul>
+            <li>
+              <button class="catalog-community-btn" @click="openCommunityFromCatalog">커뮤니티</button>
+            </li>
+            <li v-for="c in categories" :key="c">
+              <button :class="{ active: catalogActive === c }" @click="handleCatalogClick(c)">{{ c }}</button>
+            </li>
+          </ul>
+        </aside>
+        <section class="catalog-right">
+          <div class="catalog-header">
+            <h3>{{ catalogActive }}</h3>
+            <div class="catalog-header-actions">
+              <button class="theme-toggle" @click="toggleTheme">{{ isDarkMode ? '☀️ 라이트' : '🌙 다크' }}</button>
+            </div>
+          </div>
+          <div v-if="catalogActive === '커뮤니티'" class="catalog-community-area">
+            <div class="community-header">
+              <div class="title-block">
+                <p class="community-title">EODIHOT 커뮤니티</p>
+                <button class="community-toggle-btn community-write-btn" @click="openCompose">글쓰기</button>
+              </div>
+              <div class="community-header-right">
+                <button class="enter-map-btn small" @click="enterMapFromCatalog">지도로 보기</button>
+                <button class="community-close" @click="closeCommunityPanel">✕</button>
+              </div>
+            </div>
+
+            <div class="community-summary">
+              <span>표시 중 {{ visibleCommunityPosts.length }}개</span>
+              <span>비밀번호로만 수정/삭제</span>
+            </div>
+
+            <div class="community-filter-list">
+              <button class="filter-chip" :class="{ active: communityCategoryFilter === '전체' }" @click="setCommunityCategory('전체')">전체</button>
+              <button
+                v-for="category in categories"
+                :key="category"
+                class="filter-chip"
+                :class="{ active: communityCategoryFilter === category }"
+                @click="setCommunityCategory(category)"
+              >
+                {{ category }}
+              </button>
+            </div>
+
+            <div v-if="!showCompose" class="community-post-list">
+              <div v-if="!visibleCommunityPosts.length" class="community-empty">
+                아직 작성된 게시글이 없습니다. 첫 게시글을 남겨보세요.
+              </div>
+
+              <article
+                v-for="post in visibleCommunityPosts"
+                :key="post.id"
+                class="community-post-card"
+                :class="{ active: selectedCommunityPost && selectedCommunityPost.id === post.id }"
+                @click="selectCommunityPost(post)"
+              >
+                <div class="post-meta">
+                  <span class="post-author">{{ post.author }}</span>
+                  <span class="post-badge">{{ post.location }}</span>
+                </div>
+                <h4>{{ post.title }}</h4>
+                <p>{{ post.content }}</p>
+                <div class="post-footer">
+                  <span>{{ post.createdAt }}</span>
+                  <button class="inline-action" type="button" @click.stop="selectCommunityPost(post)">상세</button>
+                </div>
+              </article>
+            </div>
+
+            <div v-if="selectedCommunityPost" class="community-detail">
+              <div class="detail-card">
+                <div class="detail-head">
+                  <h4>{{ selectedCommunityPost.title }}</h4>
+                  <span class="detail-badge">{{ selectedCommunityPost.author }}</span>
+                </div>
+                <p>{{ selectedCommunityPost.content }}</p>
+                <div class="detail-meta">
+                  <span>{{ selectedCommunityPost.createdAt }}</span>
+                  <span v-if="selectedCommunityPost.updatedAt">수정 {{ selectedCommunityPost.updatedAt }}</span>
+                </div>
+                <div class="detail-actions">
+                  <button type="button" @click="startEditCommunityPost(selectedCommunityPost)">수정</button>
+                  <button type="button" class="danger" @click="deleteSelectedPost">삭제</button>
+                </div>
+                <input v-model="communityDeletePassword" type="password" placeholder="삭제 비밀번호" />
+              </div>
+            </div>
+
+            <form v-if="showCompose" class="community-compose" @submit.prevent="submitCommunityPost">
+              <p class="form-title">{{ editingCommunityPostId ? '게시글 수정' : '새 게시글 작성' }}</p>
+              <select v-model="communityForm.category">
+                <option value="전체">전체</option>
+                <option v-for="category in categories" :key="category" :value="category">{{ category }}</option>
+              </select>
+              <input v-model="communityForm.title" type="text" placeholder="게시글 제목" />
+              <textarea v-model="communityForm.content" rows="3" placeholder="서울 여행 경험을 공유해보세요."></textarea>
+              <input v-model="communityForm.password" type="password" placeholder="수정/삭제 비밀번호" />
+              <div class="form-actions">
+                <button type="submit">{{ editingCommunityPostId ? '수정 완료' : '작성 완료' }}</button>
+                <button type="button" class="secondary" @click="resetCommunityForm">취소</button>
+              </div>
+            </form>
+          </div>
+          <div v-else>
+            <ul class="catalog-list">
+              <li v-for="item in catalogItems" :key="item.contentid" class="catalog-item" @click="catalogSelectedItem = item">
+                <img :src="getPlaceImage(item)" :alt="item.title" />
+                <div class="catalog-item-info">
+                  <strong>{{ item.title }}</strong>
+                  <div class="addr">{{ item.addr1 || item.addr2 || '주소 없음' }}</div>
+                </div>
+              </li>
+            </ul>
+            <div class="catalog-footer">
+              <button class="enter-map-btn" @click="enterMapFromCatalog">지도로 이동</button>
+            </div>
+          </div>
+        </section>
+      </div>
+      <button v-if="showCatalogScreen" class="catalog-map-fab" @click="enterMapFromCatalog">지도로 보기</button>
+    </div>
     <div v-if="!mapReady && !mapError" class="loading-overlay">
       <div class="loading-card">
         <p class="loading-title">카카오맵을 먼저 불러오는 중입니다.</p>
@@ -83,7 +210,10 @@
     <div class="content-area">
       <div id="map" :class="['map-area', { visible: mapReady }]" ></div>
 
-      <aside v-if="showCommunityPanel" class="community-panel">
+      <aside
+        v-if="showCommunityPanel && mapReady"
+        class="community-panel"
+      >
         <div class="community-header">
           <div class="title-block">
             <p class="community-title">EODIHOT 커뮤니티</p>
@@ -196,6 +326,8 @@
       <span>💬</span>
     </button>
 
+    <button v-if="mapReady && !showCatalogScreen" class="list-fab" @click="backToCatalog">목록으로 보기</button>
+
     <div v-if="chatOpen" class="chatbot-panel">
       <div class="chatbot-header">
         <div>
@@ -268,6 +400,11 @@ export default {
       },
       isDarkMode: true,
       showSplash: true,
+      // Catalog screen before map
+      showCatalogScreen: false,
+      catalogActive: '관광지',
+      catalogSelectedItem: null,
+      pendingLoadPoisFromCatalog: false,
       splashExiting: false,
       categories: ['관광지', '레포츠', '문화시설', '쇼핑', '숙박', '여행코스', '축제공연행사'],
       activeCategories: [],
@@ -328,10 +465,23 @@ export default {
 
       return this.communityPosts.filter(post => (post.category || '관광지') === this.communityCategoryFilter);
     }
+    ,
+    catalogItems() {
+      if (this.catalogActive === '커뮤니티') return [];
+      return this.seoulDataByCategory[this.catalogActive] || [];
+    }
   },
   watch: {
     activeCategories() {
       this.updatePoiVisibility();
+    },
+    mapReady(newVal) {
+      if (newVal && this.pendingLoadPoisFromCatalog) {
+        this.loadSeoulPois();
+        this.showExplorerControls = true;
+        // Do NOT auto-open community panel or set activeCategories; keep catalog selection independent from map view
+        this.pendingLoadPoisFromCatalog = false;
+      }
     },
     chatMessages() {
       this.$nextTick(() => this.scrollChatToBottom());
@@ -579,12 +729,11 @@ export default {
       if (this.splashExiting) return;
       // 클릭 즉시 맵 로드를 시작하고 스플래시를 부드럽게 제거
       this.splashExiting = true;
-      // 맵 로드 시작 (스크립트 비동기 로드)
-      this.loadKakaoMap();
-      // 애니메이션 시간만큼 대기 후 DOM에서 제거
+      // 스플래시 제거 후 카탈로그 화면 표시
       setTimeout(() => {
         this.showSplash = false;
         this.splashExiting = false;
+        this.showCatalogScreen = true;
       }, 600);
     },
 
@@ -611,6 +760,31 @@ export default {
           existing.forEach(({ marker, overlay }) => { marker.setMap(null); overlay.setMap(null); });
         }
       }
+    },
+    handleCatalogClick(c) {
+      this.catalogActive = c;
+      // when selecting a real category, ensure community panel is closed
+      this.showCommunityPanel = false;
+    },
+    openCommunityFromCatalog() {
+      this.catalogActive = '커뮤니티';
+      this.showCommunityPanel = true;
+    },
+    // Called from catalog: load map and apply current catalog filter
+    enterMapFromCatalog() {
+      this.pendingLoadPoisFromCatalog = true;
+      this.showCatalogScreen = false;
+      // ensure community panel is closed when switching to map view
+      this.showCommunityPanel = false;
+      // start loading map (initMap runs asynchronously)
+      this.loadKakaoMap();
+    },
+
+    backToCatalog() {
+      // Go back to catalog/list view without altering map state
+      this.showCatalogScreen = true;
+      // close community panel floating in map view
+      this.showCommunityPanel = false;
     },
     closeDetailPanel() {
       this.selectedPlace = null;
@@ -818,10 +992,6 @@ export default {
       this.saveCommunityPosts();
       this.selectedCommunityPost = null;
       this.communityDeletePassword = '';
-      this.selectedPlace = { title, description, address, image };
-      this.$nextTick(() => {
-        this.positionDetailPanel(position || marker?.getPosition?.());
-      });
     },
     loadKakaoMap() {
       if (window.kakao?.maps) {
@@ -1247,6 +1417,11 @@ export default {
   --toggle-text: #f8fafc;
 }
 
+/* Dark mode: ensure community title is readable */
+.page-shell.theme-dark .community-title {
+  color: #ffffff;
+}
+
 .loading-overlay,
 .error-overlay {
   position: absolute;
@@ -1584,10 +1759,13 @@ export default {
   margin: 0 0 8px;
   font-size: 0.88rem;
   color: #4b5563;
-  line-height: 1.5;
+  line-height: 1.4;
+  /* Multi-line clamp to 3 lines */
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
   overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
+  white-space: normal;
 }
 
 .inline-action {
@@ -1814,6 +1992,66 @@ export default {
   flex: 1;
   min-height: 0;
   background: var(--map-bg);
+}
+
+/* Catalog screen */
+.catalog-screen {
+  position: absolute;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+  background: var(--overlay-bg);
+}
+.catalog-inner {
+  width: 100%;
+  height: 100%;
+  background: var(--card-bg);
+  color: var(--card-text);
+  display: flex;
+  border-radius: 0;
+  overflow: hidden;
+  box-shadow: none;
+}
+.catalog-left { width: 320px; padding: 20px; border-right: 1px solid var(--toolbar-border); }
+.catalog-left h3 { margin:0 0 12px; font-size:1.05rem; }
+.catalog-left ul { list-style:none; padding:0; margin:0; display:flex; flex-direction:column; gap:8px }
+.catalog-left button { width:100%; padding:12px 14px; border-radius:12px; border:1px solid var(--button-border); background:var(--button-bg); cursor:pointer; font-weight:700; font-size:1rem }
+.catalog-left button.active { background:var(--button-active-bg); color:var(--button-active-text) }
+
+/* Dark theme: ensure category text is white for contrast */
+.page-shell.theme-dark .catalog-left button { color: #ffffff; }
+.page-shell.theme-dark .catalog-left button.active { color: #ffffff; }
+
+.catalog-community-btn { width:100%; padding:12px 14px; border-radius:12px; border:1px dashed var(--button-border); background:transparent; cursor:pointer; font-weight:800 }
+.catalog-community-btn:hover { background: rgba(255,255,255,0.02) }
+.catalog-right { flex:1; display:flex; flex-direction:column; padding:16px; }
+.catalog-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:8px }
+.catalog-list { display:flex; flex-wrap:wrap; gap:12px; overflow:auto; padding:8px }
+.catalog-item { width: calc(33.333% - 12px); background:transparent; display:flex; gap:8px; align-items:flex-start; cursor:pointer; padding:8px; border-radius:10px }
+.catalog-item img { width:86px; height:64px; object-fit:cover; border-radius:8px; border:1px solid #eee }
+.catalog-item-info strong { display:block; font-size:0.95rem; margin-bottom:4px }
+.catalog-footer { margin-top:auto; display:flex; justify-content:flex-end; padding-top:12px }
+.enter-map-btn { padding:14px 18px; border-radius:12px; border:none; background:linear-gradient(135deg,#ff7aa2,#ff5d8f); color:white; cursor:pointer; font-weight:800; font-size:1rem }
+
+.catalog-header-actions { display:flex; gap:8px; align-items:center }
+.catalog-header .theme-toggle { padding:8px 10px; border-radius:10px; border:none; cursor:pointer }
+
+/* FAB for switching to map when catalog is open */
+.catalog-map-fab {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  z-index: 120;
+  padding: 14px 18px;
+  border-radius: 12px;
+  border: none;
+  background: linear-gradient(135deg,#ff7aa2,#ff5d8f);
+  color: white;
+  font-weight: 800;
+  font-size: 1rem;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.2);
 }
 
 .chat-float-button {
