@@ -21,27 +21,61 @@
 
     <div v-if="mapReady" class="toolbar">
       <div class="toolbar-inner">
+        <!-- (이전) 전역 축제 캘린더 패널은 제거됨. 각 카테고리 버튼 옆에 팝업으로 렌더링됩니다. -->
         <div class="toolbar-top">
-          <p class="toolbar-title">EODIHOT</p>
-          <button class="theme-toggle" @click="toggleTheme">{{ isDarkMode ? '☀️ 라이트' : '🌙 다크' }}</button>
+          <p class="toolbar-title" role="button" @click="goHome" title="메인으로 이동" style="cursor: pointer">EODIHOT</p>
+
+          <div class="toolbar-banner">
+            <!-- 1) 다크 모드 토글 (항상 보임) -->
+            <button class="theme-toggle" @click="toggleTheme">{{ isDarkMode ? '☀️ 라이트' : '🌙 다크' }}</button>
+
+            <!-- 2) 커뮤니티 열기/닫기 버튼 (탐색 컨트롤을 켰을 때만 보임) -->
+            <button v-if="showExplorerControls" class="community-toggle-btn" @click="toggleCommunityPanel">
+              {{ showCommunityPanel ? '커뮤니티 닫기' : '커뮤니티 열기' }}
+            </button>
+          </div>
         </div>
-        <div v-if="showExplorerControls" class="toolbar-meta">
-          <span class="count-pill">선택된 카테고리 수: {{ activeCategories.length }}</span>
-          <button class="community-toggle-btn" @click="toggleCommunityPanel">
-            {{ showCommunityPanel ? '커뮤니티 닫기' : '커뮤니티 열기' }}
-          </button>
+
+        <!-- toolbar-meta removed: 선택된 카테고리 수 표시 삭제 -->
+        <!-- 검색창: 커뮤니티 버튼 아래, 카테고리 리스트 바로 위에 위치 (초기화 버튼 제거) -->
+        <div v-if="showExplorerControls" class="toolbar-search-inline">
+          <input
+            v-model="searchQuery"
+            type="search"
+            placeholder="장소명/주소/설명으로 검색하세요"
+            @keyup.enter="runSearch"
+            aria-label="지역 검색"
+          />
+          <button class="search-btn" @click="runSearch">검색</button>
         </div>
         <div v-if="showExplorerControls" class="category-list">
-          <button
-            v-for="c in categories"
-            :key="c"
-            class="category-btn"
-            :class="{ active: activeCategories.includes(c) }"
-            @click="toggleCategory(c)"
-          >
-            <span class="emoji">✨</span>
-            <span>{{ c }}</span>
-          </button>
+          <div v-for="c in categories" :key="c" class="category-item">
+            <button
+              class="category-btn"
+              :class="{ active: activeCategories.includes(c) }"
+              @click="toggleCategory(c)"
+            >
+              <span class="emoji">✨</span>
+              <span>{{ c }}</span>
+            </button>
+
+            <!-- 축제 카테고리 버튼 옆에만 보이는 팝업 -->
+            <div
+              v-if="c === '축제공연행사'"
+              class="festival-popup"
+              v-show="activeCategories.includes('축제공연행사')"
+              @click.stop
+            >
+              <div class="festival-controls">
+                <label>여행 시작일</label>
+                <input type="date" v-model="festivalStartDate" />
+                <label>여행 종료일</label>
+                <input type="date" v-model="festivalEndDate" />
+                <button @click="filterFestivalByDate">검색</button>
+                <button @click="clearFestivalFilter" type="button">초기화</button>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -59,6 +93,7 @@
       </div>
 
         <div class="community-summary">
+          <!-- 필터 결과 목록 (커뮤니티 패널 안) -->          
           <span>표시 중 {{ visibleCommunityPosts.length }}개</span>
           <span>비밀번호로만 수정/삭제</span>
         </div>
@@ -214,6 +249,14 @@ import festivalData from '../서울_축제공연행사.json';
 export default {
   data() {
     return {
+      // festival calendar state
+      showFestivalPanel: false,
+      festivalStartDate: '', // yyyy-mm-dd from <input type="date">
+      festivalEndDate: '',
+      searchQuery: '',
+      searchMode: false, // 검색 중이면 true
+      filteredFestivalEvents: [],
+      festivalMarkers: [],
       map: null,
       regionMarkers: [],
       poiMarkersByCategory: {},
@@ -325,6 +368,171 @@ export default {
       this.resetCommunityForm();
       this.showCompose = false;
     },
+
+    // 날짜 문자열(YYYYMMDD) -> Date (local, 0-based month)
+    parseYYYYMMDD(yyyymmdd) {
+      if (!yyyymmdd) return null;
+      const s = String(yyyymmdd);
+      if (s.length !== 8) return null;
+      const y = Number(s.slice(0,4)), m = Number(s.slice(4,6))-1, d = Number(s.slice(6,8));
+      return new Date(y, m, d);
+    },
+
+    // 입력된 date input(yyyy-mm-dd) -> Date
+    parseInputDate(input) {
+      if (!input) return null;
+      const parts = input.split('-');
+      if (parts.length !== 3) return null;
+      return new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
+    },
+
+    // 축제 필터 실행
+    filterFestivalByDate() {
+      const start = this.parseInputDate(this.festivalStartDate);
+      const end = this.parseInputDate(this.festivalEndDate);
+      if (!start || !end) {
+        window.alert('시작일과 종료일을 모두 입력하세요.');
+        return;
+      }
+      if (start > end) {
+        window.alert('시작일이 종료일보다 빠른 날짜여야 합니다.');
+        return;
+      }
+
+      const items = (this.seoulDataByCategory['축제공연행사'] || []).filter(item => {
+        const evStart = this.parseYYYYMMDD(item.eventstartdate);
+        const evEnd = this.parseYYYYMMDD(item.eventenddate);
+        if (!evStart && !evEnd) return false;
+        // 이벤트 기간이 사용자가 지정한 기간과 겹치는지 검사
+        const aStart = evStart || evEnd;
+        const aEnd = evEnd || evStart;
+        return aStart <= end && aEnd >= start;
+      });
+
+      this.filteredFestivalEvents = items;
+      this.updatePoiVisibility();
+    },
+
+    // 마커 생성 (필터 결과만 표시)
+    createFestivalMarkers(items) {
+      if (!this.map || !items || !items.length) return;
+      items.forEach(item => {
+        const lat = Number(item.mapy);
+        const lng = Number(item.mapx);
+        if (Number.isNaN(lat) || Number.isNaN(lng)) return;
+        const pos = new window.kakao.maps.LatLng(lat, lng);
+        const marker = new window.kakao.maps.Marker({
+          position: pos,
+          map: this.map,
+          image: this.createCustomMarkerImage('🎪', this.categoryColors['축제공연행사'] || '#ef476f')
+        });
+        const overlay = new window.kakao.maps.CustomOverlay({
+          position: pos,
+          content: this.createBubbleContent(item.title, item.eventplace || item.addr1 || ''),
+          yAnchor: 1.25
+        });
+        marker.addListener && marker.addListener('click', () => {
+          const address = this.getPlaceAddress(item);
+          const image = this.getPlaceImage(item);
+          const description = item.program || item.overview || '';
+          this.showBubble(marker, item.title, description, address, image, pos);
+        });
+        this.festivalMarkers.push({ marker, overlay, item });
+      });
+    },
+
+    runSearch() {
+      const q = String(this.searchQuery || '').trim().toLowerCase();
+      this.searchMode = !!q;
+      if (!this.map || !this.poiMarkersByCategory) {
+        this.searchMode = false;
+        return;
+      }
+
+      if (!q) {
+        this.searchMode = false;
+        this.updatePoiVisibility();
+        return;
+      }
+
+      let firstPos = null;
+
+      Object.values(this.poiMarkersByCategory).flat().forEach(obj => {
+        try {
+          const item = obj.item || {};
+          const text = `${item.title || ''} ${item.addr1 || ''} ${item.overview || ''}`.toLowerCase();
+          const match = text.includes(q);
+          obj.marker.setMap(match ? this.map : null);
+          if (match && !firstPos && obj.marker && obj.marker.getPosition) {
+            firstPos = obj.marker.getPosition();
+          }
+          if (!match && obj.overlay) obj.overlay.setMap(null);
+        } catch (e) { /* ignore */ }
+      });
+
+      if (Array.isArray(this.festivalMarkers) && this.festivalMarkers.length) {
+        this.festivalMarkers.forEach(({ marker, overlay, item }) => {
+          try {
+            const text = `${item.title || ''} ${item.eventplace || item.addr1 || ''} ${item.overview || ''}`.toLowerCase();
+            const match = text.includes(q);
+            marker.setMap(match ? this.map : null);
+            if (match && !firstPos && marker && marker.getPosition) {
+              firstPos = marker.getPosition();
+            }
+            if (!match && overlay) overlay.setMap(null);
+          } catch (e) {}
+        });
+      }
+
+      // 첫 결과가 있으면 지도 중앙으로 이동 (약간 줌 레벨 조정)
+      if (firstPos && this.map && firstPos.getLat && firstPos.getLng) {
+        try {
+          this.map.setCenter(firstPos);
+          // 필요하면 줌 레벨을 조정: this.map.setLevel(6);
+        } catch (e) { /* ignore */ }
+      } else {
+        // 결과 없음이면 안내(선택사항)
+        // window.alert('검색 결과가 없습니다.');
+      }
+    },
+
+    clearSearch() {
+      this.searchQuery = '';
+      this.searchMode = false;
+      this.updatePoiVisibility();
+    },
+
+    // 기존 필터 마커 정리
+    clearFestivalMarkers() {
+      (this.festivalMarkers || []).forEach(obj => {
+        try { obj.marker && obj.marker.setMap(null); } catch {}
+        try { obj.overlay && obj.overlay.setMap(null); } catch {}
+      });
+      this.festivalMarkers = [];
+    },
+
+    // 초기화
+    clearFestivalFilter() {
+      this.filteredFestivalEvents = [];
+      this.festivalStartDate = '';
+      this.festivalEndDate = '';
+      this.updatePoiVisibility();
+    },
+
+    // 목록에서 클릭하면 지도 중앙/오버레이 열기
+    zoomToFestival(item) {
+      const lat = Number(item.mapy);
+      const lng = Number(item.mapx);
+      if (!this.map || Number.isNaN(lat) || Number.isNaN(lng)) return;
+      const pos = new window.kakao.maps.LatLng(lat, lng);
+      this.map.setCenter(pos);
+      this.map.setLevel(6);
+      // find created marker and trigger bubble
+      const found = (this.poiMarkersByCategory['축제공연행사'] || []).find(obj => obj.item && obj.item.contentid === item.contentid);
+      if (found) {
+        this.showBubble(found.marker, item.title, item.program || item.overview || '', this.getPlaceAddress(item), this.getPlaceImage(item), pos);
+      }
+    },
     createCustomMarkerImage(label, color) {
       const svg = `
         <svg xmlns="http://www.w3.org/2000/svg" width="60" height="60" viewBox="0 0 60 60">
@@ -379,11 +587,29 @@ export default {
         this.splashExiting = false;
       }, 600);
     },
+
+    goHome() {
+      try {
+        window.location.href = '/';
+      } catch (e) {
+        window.location.replace('/');
+      }
+    },
     toggleCategory(category) {
       if (this.activeCategories.includes(category)) {
         this.activeCategories = this.activeCategories.filter(item => item !== category);
+        if (category === '축제공연행사') {
+          this.showFestivalPanel = false;
+          this.clearFestivalFilter();
+        }
       } else {
         this.activeCategories = [...this.activeCategories, category];
+        if (category === '축제공연행사') {
+          this.showFestivalPanel = true;
+          // 축제 카테고리 기본 동작: 기존 축제 마커는 숨김(필터 사용시 새 마커만 보이게)
+          const existing = this.poiMarkersByCategory['축제공연행사'] || [];
+          existing.forEach(({ marker, overlay }) => { marker.setMap(null); overlay.setMap(null); });
+        }
       }
     },
     closeDetailPanel() {
@@ -698,7 +924,7 @@ export default {
             const description = item.overview || (address ? '서울의 추천 여행지예요.' : '서울 여행지예요.');
             this.showBubble(marker, item.title, description, address, image, marker.getPosition());
           });
-          categoryMarkers.push({ marker, overlay });
+          categoryMarkers.push({ marker, overlay, item });
           marker.setMap(this.activeCategories.includes(category) ? this.map : null);
           overlay.setMap(null);
         });
@@ -709,22 +935,56 @@ export default {
       this.updatePoiVisibility();
     },
     updatePoiVisibility() {
-      for (const [cat, items] of Object.entries(this.poiMarkersByCategory)) {
-        const show = this.activeCategories.includes(cat);
-        items.forEach(item => {
-          item.marker.setMap(show ? this.map : null);
-          if (!show) {
-            item.overlay.setMap(null);
-          }
+      // 검색 모드: 검색어가 있으면 검색 결과만 보여주고 기존 카테고리 필터 동작은 무시
+      if (this.searchMode && this.searchQuery.trim()) {
+        const q = String(this.searchQuery).trim().toLowerCase();
+        Object.values(this.poiMarkersByCategory).flat().forEach(obj => {
+          try {
+            const item = obj.item || {};
+            const text = `${item.title || ''} ${item.addr1 || ''} ${item.overview || ''}`.toLowerCase();
+            const match = text.includes(q);
+            obj.marker.setMap(match ? this.map : null);
+            if (!match && obj.overlay) obj.overlay.setMap(null);
+          } catch (e) {}
         });
+        // 축제 마커도 동일 처리
+        if (Array.isArray(this.festivalMarkers) && this.festivalMarkers.length) {
+          this.festivalMarkers.forEach(({ marker, overlay, item }) => {
+            const text = `${item.title || ''} ${item.eventplace || item.addr1 || ''} ${item.overview || ''}`.toLowerCase();
+            const match = text.includes(q);
+            try { marker.setMap(match ? this.map : null); } catch {}
+            try { if (!match) overlay.setMap(null); } catch {}
+          });
+        }
+        return;
+      }
+      for (const [cat, items] of Object.entries(this.poiMarkersByCategory)) {
+        const showCategory = this.activeCategories.includes(cat);
+
+        if (cat === '축제공연행사' && Array.isArray(this.filteredFestivalEvents) && this.filteredFestivalEvents.length) {
+          // 필터가 있으면 필터에 해당하는 마커만 보여줌
+          const ids = new Set(this.filteredFestivalEvents.map(i => i.contentid));
+          items.forEach(obj => {
+            const match = obj.item && ids.has(obj.item.contentid);
+            obj.marker.setMap(match && showCategory ? this.map : null);
+            if (!match) obj.overlay.setMap(null);
+          });
+        } else {
+          // 일반 카테고리 동작
+          items.forEach(obj => {
+            obj.marker.setMap(showCategory ? this.map : null);
+            if (!showCategory) obj.overlay.setMap(null);
+          });
+        }
       }
 
+      // 기존 디밍(불활성 카테고리 투명화)
       const allMarkers = Object.values(this.poiMarkersByCategory).flat();
-      allMarkers.forEach(item => {
-        if (!item.marker || !this.map) return;
-        const category = Object.keys(this.poiMarkersByCategory).find(key => this.poiMarkersByCategory[key].includes(item));
+      allMarkers.forEach(obj => {
+        if (!obj.marker || !this.map) return;
+        const category = Object.keys(this.poiMarkersByCategory).find(k => this.poiMarkersByCategory[k].includes(obj));
         const shouldDim = category && !this.activeCategories.includes(category);
-        item.marker.setOpacity(shouldDim ? 0.3 : 1);
+        obj.marker.setOpacity(shouldDim ? 0.3 : 1);
       });
     },
 
@@ -857,6 +1117,65 @@ export default {
 </script>
 
 <style scoped>
+.toolbar-search { display:flex; gap:8px; align-items:center; margin-top:8px; }
+
+.toolbar-search input { flex:1; padding:8px 10px; border-radius:8px; border:1px solid #ddd; }
+
+.toolbar-search button { padding:8px 10px; border-radius:8px; cursor:pointer; }
+
+/* 배너 폭/간격 축소 */
+.toolbar-banner {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: flex-end;
+  min-width: 220px;
+  max-width: 280px;
+}
+
+/* 버튼 크기 통일 (작게) */
+.toolbar-banner .theme-toggle,
+.toolbar-banner .community-toggle-btn {
+  width: 110px;
+  height: 36px;
+  padding: 6px 8px;
+  font-size: 0.9rem;
+  border-radius: 10px;
+  box-sizing: border-box;
+}
+
+/* 검색창 (카테고리 버튼과 같은 행/높이) */
+.toolbar-search-inline {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  width: 100%;
+  margin-top: 4px;
+  justify-content: flex-end; /* 오른쪽 끝 정렬 */
+}
+
+.toolbar-search-inline input {
+  width: 16.666%; /* 기존 대비 1/6 수준 */
+  min-width: 56px;
+  height: 36px;
+  padding: 6px 10px;
+  border-radius: 10px;
+  border: 1px solid #ddd;
+  box-sizing: border-box;
+  font-size: 0.9rem;
+}
+
+.toolbar-search-inline .search-btn,
+.toolbar-search-inline .search-clear {
+  height: 36px;
+  padding: 6px 10px;
+  border-radius: 10px;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+
+.toolbar-search button { padding:8px 10px; border-radius:8px; cursor:pointer; }
+
 .page-shell {
   height: 100vh;
   display: flex;
@@ -961,7 +1280,7 @@ export default {
 }
 
 .toolbar {
-  padding: 12px 16px;
+  padding: 8px 12px;
   background: var(--toolbar-bg);
   border-bottom: 1px solid var(--toolbar-border);
   z-index: 10;
@@ -970,7 +1289,7 @@ export default {
 .toolbar-inner {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 6px;
 }
 
 .toolbar-top {
@@ -1031,7 +1350,47 @@ export default {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+  position: relative;
 }
+
+.category-item {
+  position: relative;
+  display: inline-block;
+}
+
+.festival-popup {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  min-width: 300px;
+  background: var(--card-bg);
+  color: var(--card-text);
+  border: 1px solid var(--toolbar-border);
+  border-radius: 10px;
+  padding: 8px;
+  box-shadow: 0 8px 20px rgba(0,0,0,0.12);
+  z-index: 50;
+}
+
+.festival-controls {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.festival-controls input[type="date"] { padding:6px; border-radius:6px; border:1px solid #ddd; }
+.festival-controls button { padding:6px 10px; border-radius:8px; margin-left:6px; cursor:pointer; }
+.festival-list { padding: 8px 16px; border-top: 1px dashed #f0c7d6; }
+.festival-list h4 { margin: 6px 0; font-size: 0.95rem; }
+.festival-list ul { padding-left: 12px; margin: 0; }
+.festival-list li { margin: 6px 0; }
+.festival-list button { background: transparent; border: none; color: #be185d; cursor: pointer; text-align: left; padding: 0; }
+.festival-list { padding: 8px 16px; border-top: 1px dashed #f0c7d6; }
+.festival-list h4 { margin: 6px 0; font-size: 0.95rem; }
+.festival-list ul { padding-left: 12px; margin: 0; }
+.festival-list li { margin: 6px 0; }
+.festival-list button { background: transparent; border: none; color: #be185d; cursor: pointer; text-align: left; padding: 0; }
 
 .category-btn {
   border: 1px solid var(--button-border);
