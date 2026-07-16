@@ -152,7 +152,7 @@
       </div>
     </div>
 
-    <button class="chat-float-button" @click="openChatbot" :class="{ open: chatOpen }">
+    <button class="chat-float-button" @click="toggleChatbot" :class="{ open: chatOpen }">
       <span>💬</span>
     </button>
 
@@ -310,6 +310,8 @@ export default {
     openCompose() {
       this.resetCommunityForm();
       this.communityForm.category = this.communityCategoryFilter === '전체' ? '관광지' : this.communityCategoryFilter;
+      this.selectedCommunityPost = null;
+      this.communityDeletePassword = '';
       this.showCompose = true;
     },
     cancelCompose() {
@@ -715,6 +717,12 @@ export default {
     closeChatbot() {
       // 오직 이 버튼 호출로만 창이 닫히도록 보장
       this.chatOpen = false;
+    },
+    toggleChatbot() {
+      this.chatOpen = !this.chatOpen;
+      if (this.chatOpen) {
+        this.$nextTick(() => this.scrollChatToBottom());
+      }
     },
     
     scrollChatToBottom() {
@@ -1218,13 +1226,22 @@ export default {
   top: 16px;
   width: min(360px, 86vw);
   z-index: 30;
-  background: var(--card-bg, #fff);
-  color: var(--card-text, #222);
-  border: 1px solid #f0dbe4;
-  border-radius: 12px;
-  box-shadow: 0 8px 20px rgba(255, 93, 143, 0.18); /* 게시글 강조와 동일한 그림자 */
-  transform: translateY(-2px); /* 게시글 강조와 동일한 위치 변화 */
+  border: 1px solid #ff7aa2 !important;
+  border-radius: 14px !important;
+  padding: 12px !important;
+  background: #ffffff !important;
+  color: #222222 !important;
+  box-shadow: 0 8px 20px rgba(255, 93, 143, 0.18) !important;
+  transform: translateY(-2px) !important;
   transition: box-shadow 0.18s ease, transform 0.12s ease;
+}
+
+.community-detail .detail-card {
+  border: none !important;
+  padding: 0 !important;
+  background: transparent !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
 }
 
 .detail-card {
@@ -1607,18 +1624,6 @@ export default {
   
 }
 
-/* community detail 외곽/내부 테두리 완전 제거 + 강조 그림자 유지 */
-.community-detail,
-.community-detail .detail-card {
-  border: none !important;
-  outline: none !important;
-}
-
-/* 상세창 강조 효과(게시글 active와 동일) */
-.community-detail {
-  box-shadow: 0 8px 20px rgba(255, 93, 143, 0.18);
-  transform: translateY(-2px);
-}
 
 /* 모바일 안전 처리 */
 @media (max-width: 760px) {
