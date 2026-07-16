@@ -1,5 +1,10 @@
 <template>
   <div class="page-shell" :class="isDarkMode ? 'theme-dark' : 'theme-light'">
+    <div v-if="showSplash" :class="['splash-screen', { 'splash-exit': splashExiting }]">
+      <div class="splash-inner">
+        <h1 class="splash-logo" @click="startApp">EODIHOT</h1>
+      </div>
+    </div>
     <div v-if="!mapReady && !mapError" class="loading-overlay">
       <div class="loading-card">
         <p class="loading-title">카카오맵을 먼저 불러오는 중입니다.</p>
@@ -42,16 +47,16 @@
     </div>
 
     <div class="content-area">
-      <div id="map" class="map-area"></div>
+      <div id="map" :class="['map-area', { visible: mapReady }]" ></div>
 
       <aside v-if="showCommunityPanel" class="community-panel">
         <div class="community-header">
-          <div>
-            <p class="community-title">{{ selectedPlace?.title || '서울 커뮤니티' }}</p>
-            <p class="community-subtitle">서울 권역의 익명 커뮤니티입니다. 제목·내용·비밀번호로 게시글을 저장하고 관리할 수 있습니다.</p>
-          </div>
-          <button class="community-close" @click="closeCommunityPanel">✕</button>
+          <div class="title-block">
+            <p class="community-title">EODIHOT 커뮤니티</p>
+            <button class="community-toggle-btn community-write-btn" @click="openCompose">글쓰기</button>
         </div>
+        <button class="community-close" @click="closeCommunityPanel">✕</button>
+      </div>
 
         <div class="community-summary">
           <span>표시 중 {{ visibleCommunityPosts.length }}개</span>
@@ -71,7 +76,7 @@
           </button>
         </div>
 
-        <div class="community-post-list">
+        <div v-if="!showCompose" class="community-post-list">
           <div v-if="!visibleCommunityPosts.length" class="community-empty">
             아직 작성된 게시글이 없습니다. 첫 게시글을 남겨보세요.
           </div>
@@ -80,6 +85,7 @@
             v-for="post in visibleCommunityPosts"
             :key="post.id"
             class="community-post-card"
+            :class="{ active: selectedCommunityPost && selectedCommunityPost.id === post.id }"
             @click="selectCommunityPost(post)"
           >
             <div class="post-meta">
@@ -114,7 +120,7 @@
           </div>
         </div>
 
-        <form class="community-compose" @submit.prevent="submitCommunityPost">
+        <form v-if="showCompose" class="community-compose" @submit.prevent="submitCommunityPost">
           <p class="form-title">{{ editingCommunityPostId ? '게시글 수정' : '새 게시글 작성' }}</p>
           <select v-model="communityForm.category">
             <option value="전체">전체</option>
@@ -125,7 +131,7 @@
           <input v-model="communityForm.password" type="password" placeholder="수정/삭제 비밀번호" />
           <div class="form-actions">
             <button type="submit">{{ editingCommunityPostId ? '수정 완료' : '작성 완료' }}</button>
-            <button v-if="editingCommunityPostId" type="button" class="secondary" @click="resetCommunityForm">취소</button>
+            <button type="button" class="secondary" @click="resetCommunityForm">취소</button>
           </div>
         </form>
       </aside>
@@ -152,8 +158,7 @@
     </div>
 
     <button class="chat-float-button" @click="toggleChatbot" :class="{ open: chatOpen }">
-      <span v-if="!chatOpen">💬</span>
-      <span v-else>✕</span>
+      <span>💬</span>
     </button>
 
     <div v-if="chatOpen" class="chatbot-panel">
@@ -219,6 +224,8 @@ export default {
         top: '16px'
       },
       isDarkMode: true,
+      showSplash: true,
+      splashExiting: false,
       categories: ['관광지', '레포츠', '문화시설', '쇼핑', '숙박', '여행코스', '축제공연행사'],
       activeCategories: [],
       categoryColors: {
@@ -254,6 +261,7 @@ export default {
       ],
       showCommunityPanel: false,
       showExplorerControls: false,
+      showCompose: false,
       communityCategoryFilter: '전체',
       communityStorageKey: 'localhub-seoul-community-posts',
       communityPosts: [],
@@ -263,6 +271,7 @@ export default {
         password: '',
         category: '관광지'
       },
+      isComposing: false,
       editingCommunityPostId: null,
       selectedCommunityPost: null,
       communityDeletePassword: ''
@@ -288,7 +297,7 @@ export default {
   mounted() {
     this.loadCommunityPosts();
     this.initTheme();
-    this.loadKakaoMap();
+    // 맵은 시작 화면에서 'EODIHOT' 클릭 시 로드합니다.
   },
   beforeUnmount() {
     if (this.customOverlay) {
@@ -305,6 +314,17 @@ export default {
     this.poiMarkersByCategory = {};
   },
   methods: {
+    openCompose() {
+      this.resetCommunityForm();
+      this.communityForm.category = this.communityCategoryFilter === '전체' ? '관광지' : this.communityCategoryFilter;
+      this.selectedCommunityPost = null;
+      this.communityDeletePassword = '';
+      this.showCompose = true;
+    },
+    cancelCompose() {
+      this.resetCommunityForm();
+      this.showCompose = false;
+    },
     createCustomMarkerImage(label, color) {
       const svg = `
         <svg xmlns="http://www.w3.org/2000/svg" width="60" height="60" viewBox="0 0 60 60">
@@ -346,6 +366,18 @@ export default {
       } catch (error) {
         console.warn('theme storage write error', error);
       }
+    },
+    startApp() {
+      if (this.splashExiting) return;
+      // 클릭 즉시 맵 로드를 시작하고 스플래시를 부드럽게 제거
+      this.splashExiting = true;
+      // 맵 로드 시작 (스크립트 비동기 로드)
+      this.loadKakaoMap();
+      // 애니메이션 시간만큼 대기 후 DOM에서 제거
+      setTimeout(() => {
+        this.showSplash = false;
+        this.splashExiting = false;
+      }, 600);
     },
     toggleCategory(category) {
       if (this.activeCategories.includes(category)) {
@@ -425,7 +457,6 @@ export default {
       this.customOverlay = null;
       this.selectedPlace = { title, description, address, image };
       this.showExplorerControls = this.showExplorerControls || title === '서울';
-      this.showCommunityPanel = title === '서울';
 
       this.$nextTick(() => {
         this.positionDetailPanel(position || marker?.getPosition?.());
@@ -433,7 +464,6 @@ export default {
     },
     closeDetailPanel() {
       this.selectedPlace = null;
-      this.showCommunityPanel = false;
       this.detailPanelStyle = { left: '16px', top: '16px' };
     },
     toggleCommunityPanel() {
@@ -470,10 +500,15 @@ export default {
     resetCommunityForm() {
       this.communityForm = { title: '', content: '', password: '', category: this.communityCategoryFilter === '전체' ? '관광지' : this.communityCategoryFilter };
       this.editingCommunityPostId = null;
+      this.showCompose = false;
     },
     selectCommunityPost(post) {
-      this.selectedCommunityPost = post;
-      this.communityDeletePassword = '';
+      if (this.selectedCommunityPost && this.selectedCommunityPost.id === post.id) {
+        this.selectedCommunityPost = null;
+      } else {
+        this.selectedCommunityPost = post;
+        this.communityDeletePassword = '';
+      }
     },
     startEditCommunityPost(post) {
       this.selectedCommunityPost = post;
@@ -484,6 +519,7 @@ export default {
         password: '',
         category: post.category || '관광지'
       };
+      this.showCompose = true;
     },
     submitCommunityPost() {
       const title = this.communityForm.title.trim();
@@ -692,12 +728,22 @@ export default {
       });
     },
 
+    openChatbot() {
+      if (this.chatOpen) return;
+      this.chatOpen = true;
+      this.$nextTick(() => this.scrollChatToBottom());
+    },
+    closeChatbot() {
+      // 오직 이 버튼 호출로만 창이 닫히도록 보장
+      this.chatOpen = false;
+    },
     toggleChatbot() {
       this.chatOpen = !this.chatOpen;
       if (this.chatOpen) {
         this.$nextTick(() => this.scrollChatToBottom());
       }
     },
+    
     scrollChatToBottom() {
       const container = this.$refs.chatMessagesRef;
       if (container) {
@@ -1049,6 +1095,16 @@ export default {
   border-bottom: 1px solid #f1f1f1;
 }
 
+.community-header .title-block {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.community-write-btn {
+  padding: 8px 12px;
+  font-weight: 700;
+}
+
 .community-title {
   margin: 0 0 6px;
   font-size: 1rem;
@@ -1130,6 +1186,12 @@ export default {
   cursor: pointer;
 }
 
+.community-post-card.active {
+  border-color: #ff7aa2;
+  box-shadow: 0 8px 20px rgba(255, 93, 143, 0.18);
+  transform: translateY(-2px);
+}
+
 .post-meta,
 .post-footer {
   display: flex;
@@ -1164,6 +1226,9 @@ export default {
   font-size: 0.88rem;
   color: #4b5563;
   line-height: 1.5;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .inline-action {
@@ -1175,7 +1240,27 @@ export default {
 }
 
 .community-detail {
-  padding: 0 16px 12px;
+  position: absolute;
+  right: calc(100% + 16px);
+  top: 16px;
+  width: min(360px, 86vw);
+  z-index: 30;
+  border: 1px solid #ff7aa2 !important;
+  border-radius: 14px !important;
+  padding: 12px !important;
+  background: #ffffff !important;
+  color: #222222 !important;
+  box-shadow: 0 8px 20px rgba(255, 93, 143, 0.18) !important;
+  transform: translateY(-2px) !important;
+  transition: box-shadow 0.18s ease, transform 0.12s ease;
+}
+
+.community-detail .detail-card {
+  border: none !important;
+  padding: 0 !important;
+  background: transparent !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
 }
 
 .detail-card {
@@ -1540,5 +1625,112 @@ export default {
 :deep(.cute-bubble__desc) {
   font-size: 12px;
   color: var(--bubble-desc);
+}
+
+/* 커뮤니티 패널을 기준으로 상세창을 패널 왼쪽으로 띄우기 */
+.community-panel {
+  position: relative; /* 상세창의 기준 컨테이너로 사용 */
+  z-index: 20;
+}
+
+/* 패널 내부 스크롤과 겹치지 않게 자리 확보(선택사항) */
+.community-post-list {
+  padding-right: 8px;
+}
+
+/* 작은 화면에서는 기존 동작(오버레이 혹은 패널 내부)으로 되돌리기 */
+@media (max-width: 760px) {
+  
+}
+
+
+/* 모바일 안전 처리 */
+@media (max-width: 760px) {
+  .community-detail {
+    position: static;
+    width: 100%;
+    margin: 12px 0 0;
+    transform: none;
+    box-shadow: none;
+  }
+}
+
+/* Splash screen styles */
+.splash-screen {
+  position: absolute;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #06080a; /* 어두운 배경 */
+}
+.splash-inner {
+  text-align: center;
+  user-select: none;
+}
+.splash-logo {
+  margin: 0;
+  font-size: clamp(2.4rem, 8vw, 6rem);
+  font-weight: 900;
+  letter-spacing: 0.18em;
+  color: #ffffff;
+  text-transform: uppercase;
+  cursor: pointer;
+  position: relative;
+  display: inline-block;
+  padding: 6px 12px;
+  transition: transform 0.18s ease, opacity 0.28s ease;
+  text-shadow: 0 6px 0 rgba(0,0,0,0.35), 0 18px 36px rgba(0,0,0,0.6);
+}
+.splash-logo:hover { transform: translateY(-6px); }
+/* 흰색 얇은 선 (로고 바로 아래) */
+.splash-logo::before {
+  /* 밑선: 로고 텍스트 폭만큼 정확히 이어지도록 설정 */
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -8px;
+  height: 3px;
+  width: 100%;
+  margin: 0 auto;
+  background: linear-gradient(90deg, rgba(255,255,255,0.98), rgba(255,255,255,0.9));
+  border-radius: 2px;
+  box-shadow: 0 2px 0 rgba(0,0,0,0.18);
+}
+/* 분홍빛 발광(블러) */
+.splash-logo::after {
+  /* 분홍빛 블러: 로고 폭보다 넓게 표시하여 강조선 효과를 만듭니다 */
+  content: '';
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: -18px;
+  height: 12px;
+  width: calc(100% + 140px);
+  background: linear-gradient(90deg, rgba(255,122,162,0.98), rgba(255,255,255,0.9));
+  border-radius: 10px;
+  filter: blur(12px);
+  opacity: 0.92;
+}
+
+/* 스플래시 종료 애니메이션 */
+.splash-screen {
+  transition: opacity 0.6s cubic-bezier(.2,.9,.3,1), transform 0.6s cubic-bezier(.2,.9,.3,1);
+}
+.splash-screen.splash-exit {
+  opacity: 0;
+  transform: scale(0.98) translateY(-6px);
+  pointer-events: none;
+}
+
+/* 지도 페이드인 (mapReady에 의해 visible 클래스가 붙음) */
+.map-area {
+  opacity: 0;
+  transition: opacity 0.6s ease 0.05s;
+}
+.map-area.visible {
+  opacity: 1;
 }
 </style>
